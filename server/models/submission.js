@@ -52,7 +52,9 @@ submissionSchema.methods.addVote = function(voterId) {
   }
   
   // Check if voter is trying to vote for their own submission
-  if (voterId.equals(this.playerId)) {
+  // Handle both populated and non-populated playerId
+  const submissionPlayerId = this.playerId._id || this.playerId;
+  if (voterId.equals(submissionPlayerId)) {
     throw new Error('Players cannot vote for their own submission');
   }
   

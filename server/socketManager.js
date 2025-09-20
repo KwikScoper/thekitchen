@@ -55,6 +55,15 @@ class SocketManager {
         this.handleSubmitImage(socket, data);
       });
 
+      // Voting events
+      socket.on('startVoting', (data) => {
+        this.handleStartVoting(socket, data);
+      });
+
+      socket.on('castVote', (data) => {
+        this.handleCastVote(socket, data);
+      });
+
       // Log successful connection
       socket.emit('connected', {
         message: 'Successfully connected to The Kitchen server',
@@ -883,6 +892,342 @@ class SocketManager {
       console.error('Error submitting image:', error);
       socket.emit('error', {
         message: 'Internal server error while submitting image',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  }
+
+  /**
+   * Handle voting start request (host-only)
+   * @param {Object} socket - The socket requesting to start voting
+   * @param {Object} data - Data containing room code
+   */
+  async handleStartVoting(socket, data) {
+    try {
+      const { roomCode } = data;
+
+      // Validate input
+      if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
+        socket.emit('error', {
+          message: 'Room code must be exactly 4 characters',
+          code: 'INVALID_ROOM_CODE'
+        });
+        return;
+      }
+
+      const normalizedRoomCode = roomCode.trim().toUpperCase();
+
+      // Find player
+      const player = await Player.findOne({ socketId: socket.id });
+      if (!player) {
+        socket.emit('error', {
+          message: 'Player not found',
+          code: 'PLAYER_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Find room
+      const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
+      if (!room) {
+        socket.emit('error', {
+          message: 'Room not found',
+          code: 'ROOM_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Check if player is in this room
+      const playerInRoom = room.players.find(p => p._id.toString() === player._id.toString());
+      if (!playerInRoom) {
+        socket.emit('error', {
+          message: 'Player is not in this room',
+          code: 'PLAYER_NOT_IN_ROOM'
+        });
+        return;
+      }
+
+      // Check if player is the host
+      if (!player.isHost) {
+        socket.emit('error', {
+          message: 'Only the host can start voting',
+          code: 'NOT_HOST'
+        });
+        return;
+      }
+
+      // Check if game is in submitting state
+      if (room.gameState !== 'submitting') {
+        socket.emit('error', {
+          message: 'Game must be in submission phase to start voting',
+          code: 'INVALID_GAME_STATE'
+        });
+        return;
+      }
+
+      // Check if there are submissions to vote on
+      const submissions = await Submission.find({ roomId: room._id });
+      if (submissions.length === 0) {
+        socket.emit('error', {
+          message: 'No submissions found to vote on',
+          code: 'NO_SUBMISSIONS'
+        });
+        return;
+      }
+
+      // Start voting phase
+      await room.startVoting();
+
+      // Get updated room data
+      const updatedRoom = await GameRoom.findById(room._id).populate('players');
+
+      // Emit voting started event to all players in the room
+      this.emitToRoom(normalizedRoomCode, 'votingStarted', {
+        success: true,
+        message: 'Voting phase has begun!',
+        data: {
+          roomCode: updatedRoom.roomCode,
+          gameState: updatedRoom.gameState,
+          votingTimeLimit: updatedRoom.votingTimeLimit,
+          votingStartTime: updatedRoom.votingStartTime,
+          playerCount: updatedRoom.players.length,
+          submissionsCount: submissions.length,
+          players: updatedRoom.players.map(p => ({
+            id: p._id,
+            name: p.name,
+            isHost: p.isHost,
+            socketId: p.socketId
+          }))
+        }
+      });
+
+      console.log(`Voting started in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
+
+    } catch (error) {
+      console.error('Error starting voting:', error);
+      socket.emit('error', {
+        message: 'Internal server error while starting voting',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  }
+
+  /**
+   * Handle vote casting
+   * @param {Object} socket - The socket casting the vote
+   * @param {Object} data - Data containing room code and submission ID
+   */
+  async handleCastVote(socket, data) {
+    try {
+      const { roomCode, submissionId } = data;
+
+      // Validate input
+      if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
+        socket.emit('error', {
+          message: 'Room code must be exactly 4 characters',
+          code: 'INVALID_ROOM_CODE'
+        });
+        return;
+      }
+
+      if (!submissionId || typeof submissionId !== 'string') {
+        socket.emit('error', {
+          message: 'Submission ID is required',
+          code: 'INVALID_SUBMISSION_ID'
+        });
+        return;
+      }
+
+      const normalizedRoomCode = roomCode.trim().toUpperCase();
+
+      // Find player
+      const player = await Player.findOne({ socketId: socket.id });
+      if (!player) {
+        socket.emit('error', {
+          message: 'Player not found',
+          code: 'PLAYER_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Find room
+      const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
+      if (!room) {
+        socket.emit('error', {
+          message: 'Room not found',
+          code: 'ROOM_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Check if player is in this room
+      const playerInRoom = room.players.find(p => p._id.toString() === player._id.toString());
+      if (!playerInRoom) {
+        socket.emit('error', {
+          message: 'Player is not in this room',
+          code: 'PLAYER_NOT_IN_ROOM'
+        });
+        return;
+      }
+
+      // Check if game is in voting state
+      if (room.gameState !== 'voting') {
+        socket.emit('error', {
+          message: 'Game is not in voting phase',
+          code: 'INVALID_GAME_STATE'
+        });
+        return;
+      }
+
+      // Check if voting time has expired
+      if (room.isVotingTimeExpired()) {
+        socket.emit('error', {
+          message: 'Voting time has expired',
+          code: 'VOTING_TIME_EXPIRED'
+        });
+        return;
+      }
+
+      // Find submission
+      const submission = await Submission.findById(submissionId).populate('playerId', 'name');
+      if (!submission) {
+        socket.emit('error', {
+          message: 'Submission not found',
+          code: 'SUBMISSION_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Check if submission belongs to this room
+      if (submission.roomId.toString() !== room._id.toString()) {
+        socket.emit('error', {
+          message: 'Submission does not belong to this room',
+          code: 'SUBMISSION_NOT_IN_ROOM'
+        });
+        return;
+      }
+
+      try {
+        // Add vote to submission
+        await submission.addVote(player._id);
+
+        // Get updated submission with vote count
+        const updatedSubmission = await Submission.findById(submissionId).populate('playerId', 'name');
+
+        // Get all submissions for this room to check if all players have voted
+        const allSubmissions = await Submission.find({ roomId: room._id }).populate('playerId', 'name');
+        const totalVotes = allSubmissions.reduce((sum, sub) => sum + sub.votes.length, 0);
+        const allPlayersVoted = totalVotes === room.players.length;
+
+        // Emit vote success to the voting player
+        socket.emit('voteSuccess', {
+          success: true,
+          message: `Vote cast for ${updatedSubmission.playerId.name}'s submission!`,
+          data: {
+            submissionId: updatedSubmission._id,
+            submissionOwner: updatedSubmission.playerId.name,
+            voteCount: updatedSubmission.voteCount,
+            totalVotes: totalVotes,
+            allPlayersVoted: allPlayersVoted,
+            votedAt: new Date().toISOString()
+          }
+        });
+
+        // Emit vote update to all players in the room
+        this.emitToRoom(normalizedRoomCode, 'voteUpdate', {
+          success: true,
+          message: `${player.name} voted for ${updatedSubmission.playerId.name}'s submission`,
+          data: {
+            voterId: player._id,
+            voterName: player.name,
+            submissionId: updatedSubmission._id,
+            submissionOwner: updatedSubmission.playerId.name,
+            voteCount: updatedSubmission.voteCount,
+            totalVotes: totalVotes,
+            allPlayersVoted: allPlayersVoted,
+            remainingTime: room.getRemainingVotingTime()
+          }
+        });
+
+        // If all players have voted, automatically transition to results phase
+        if (allPlayersVoted) {
+          await room.endVoting();
+          
+          // Get updated room data
+          const updatedRoom = await GameRoom.findById(room._id).populate('players');
+          
+          // Get all submissions with vote counts for results
+          const submissionsWithVotes = await Submission.find({ roomId: room._id })
+            .populate('playerId', 'name')
+            .sort({ voteCount: -1 });
+
+          // Find winner (submission with most votes, excluding submissions with null playerId)
+          const validSubmissions = submissionsWithVotes.filter(sub => sub.playerId);
+          const winner = validSubmissions.length > 0 ? validSubmissions[0] : null;
+
+          // Emit results event to all players
+          this.emitToRoom(normalizedRoomCode, 'resultsReady', {
+            success: true,
+            message: 'All players have voted! Results are ready.',
+            data: {
+              roomCode: updatedRoom.roomCode,
+              gameState: updatedRoom.gameState,
+              winner: winner ? {
+                submissionId: winner._id,
+                playerId: winner.playerId._id,
+                playerName: winner.playerId.name,
+                voteCount: winner.voteCount,
+                imageUrl: winner.imageUrl
+              } : null,
+              submissions: submissionsWithVotes
+                .filter(sub => sub.playerId) // Filter out submissions with null playerId
+                .map(sub => ({
+                  submissionId: sub._id,
+                  playerId: sub.playerId._id,
+                  playerName: sub.playerId.name,
+                  voteCount: sub.voteCount,
+                  imageUrl: sub.imageUrl
+                })),
+              playerCount: updatedRoom.players.length,
+              players: updatedRoom.players.map(p => ({
+                id: p._id,
+                name: p.name,
+                isHost: p.isHost,
+                socketId: p.socketId
+              }))
+            }
+          });
+
+          console.log(`All players voted in room ${normalizedRoomCode}, results phase started`);
+        }
+
+        console.log(`${player.name} (${socket.id}) voted for submission ${submissionId} in room ${normalizedRoomCode}`);
+
+      } catch (voteError) {
+        // Handle vote validation errors
+        if (voteError.message === 'Player has already voted for this submission') {
+          socket.emit('error', {
+            message: 'You have already voted for this submission',
+            code: 'ALREADY_VOTED'
+          });
+          return;
+        }
+
+        if (voteError.message === 'Players cannot vote for their own submission') {
+          socket.emit('error', {
+            message: 'You cannot vote for your own submission',
+            code: 'SELF_VOTE_NOT_ALLOWED'
+          });
+          return;
+        }
+
+        throw voteError;
+      }
+
+    } catch (error) {
+      console.error('Error casting vote:', error);
+      socket.emit('error', {
+        message: 'Internal server error while casting vote',
         code: 'INTERNAL_ERROR'
       });
     }

@@ -120,6 +120,11 @@ gameRoomSchema.methods.showResults = async function() {
   return await this.save();
 };
 
+// Method to end voting phase (alias for showResults)
+gameRoomSchema.methods.endVoting = async function() {
+  return await this.showResults();
+};
+
 // Method to reset game to lobby
 gameRoomSchema.methods.resetToLobby = async function() {
   this.gameState = 'lobby';
@@ -148,6 +153,26 @@ gameRoomSchema.methods.getRemainingCookingTime = function() {
   const elapsed = (new Date() - this.gameStartTime) / 1000; // Convert to seconds
   const remaining = this.cookingTimeLimit - elapsed;
   return Math.max(0, Math.floor(remaining));
+};
+
+// Method to check if voting time has expired
+gameRoomSchema.methods.isVotingTimeExpired = function() {
+  if (this.gameState !== 'voting') {
+    return false;
+  }
+  
+  // For now, voting doesn't have a time limit, but we can add it later
+  return false;
+};
+
+// Method to get remaining voting time
+gameRoomSchema.methods.getRemainingVotingTime = function() {
+  if (this.gameState !== 'voting') {
+    return 0;
+  }
+  
+  // For now, return a large number since voting doesn't have a time limit
+  return 999999;
 };
 
 module.exports = mongoose.model('GameRoom', gameRoomSchema);
