@@ -17,6 +17,18 @@ const playerSchema = new mongoose.Schema({
   isHost: {
     type: Boolean,
     default: false
+  },
+  isConnected: {
+    type: Boolean,
+    default: true
+  },
+  lastSeen: {
+    type: Date,
+    default: Date.now
+  },
+  disconnectTime: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

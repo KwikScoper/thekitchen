@@ -14,13 +14,14 @@ class SocketManager {
     this.aiPromptGenerator = new AIPromptGenerator();
     this.imageUploader = new ImageUploader();
     this.setupEventHandlers();
+    this.startRoomCleanupService();
   }
 
   /**
    * Set up all Socket.IO event handlers
    */
   setupEventHandlers() {
-    this.io.on('connection', (socket) => {
+    this.io.on('connection', async (socket) => {
       console.log(`User connected: ${socket.id}`);
       
       // Handle user disconnection
@@ -64,67 +65,247 @@ class SocketManager {
         this.handleCastVote(socket, data);
       });
 
-      // Log successful connection
-      socket.emit('connected', {
-        message: 'Successfully connected to The Kitchen server',
-        socketId: socket.id,
-        timestamp: new Date().toISOString()
+      // Heartbeat event for connection monitoring
+      socket.on('heartbeat', () => {
+        this.handleHeartbeat(socket);
       });
+
+      // Clean up any orphaned players with this socket ID (shouldn't happen, but safety check)
+      try {
+        const orphanedPlayer = await Player.findOne({ socketId: socket.id });
+        if (orphanedPlayer) {
+          console.log(`Cleaning up orphaned player ${orphanedPlayer.name} with socket ${socket.id}`);
+          await this.cleanupPlayer(orphanedPlayer);
+        }
+
+        // Log successful connection
+        socket.emit('connected', {
+          message: 'Successfully connected to The Kitchen server',
+          socketId: socket.id,
+          timestamp: new Date().toISOString(),
+          isReconnection: false
+        });
+      } catch (error) {
+        console.error('Error handling connection:', error);
+        socket.emit('connected', {
+          message: 'Successfully connected to The Kitchen server',
+          socketId: socket.id,
+          timestamp: new Date().toISOString(),
+          isReconnection: false
+        });
+      }
     });
   }
 
   /**
-   * Handle user disconnection
+   * Clean up a player from database and all rooms
+   * @param {Object} player - The player to clean up
+   */
+  async cleanupPlayer(player) {
+    try {
+      console.log(`Cleaning up player ${player.name} (${player.socketId})`);
+      
+      // Find rooms containing this player
+      const rooms = await GameRoom.find({ 
+        players: player._id 
+      }).populate('players');
+      
+      for (const room of rooms) {
+        try {
+          // Remove player from the room
+          const updatedRoom = await GameRoom.findByIdAndUpdate(
+            room._id,
+            { $pull: { players: player._id } },
+            { new: true }
+          ).populate('players');
+          
+          if (updatedRoom) {
+            // If this was the host and there are other players, make the first remaining player the host
+            if (player.isHost && updatedRoom.players.length > 0) {
+              const newHost = updatedRoom.players[0];
+              await Player.findByIdAndUpdate(newHost._id, { isHost: true });
+              
+              // Update the room data with new host
+              const roomWithNewHost = await GameRoom.findById(room._id).populate('players');
+              
+              // Emit room update with new host
+              this.io.to(room.roomCode).emit('roomUpdate', {
+                success: true,
+                message: `${player.name} disconnected. ${newHost.name} is now the host.`,
+                data: {
+                  roomCode: roomWithNewHost.roomCode,
+                  gameState: roomWithNewHost.gameState,
+                  playerCount: roomWithNewHost.players.length,
+                  players: roomWithNewHost.players.map(p => ({
+                    id: p._id,
+                    name: p.name,
+                    isHost: p.isHost,
+                    socketId: p.socketId
+                  })),
+                  currentPrompt: roomWithNewHost.currentPrompt,
+                  createdAt: roomWithNewHost.createdAt
+                }
+              });
+              
+              console.log(`Player ${player.name} cleaned up. ${newHost.name} is now the host of room ${room.roomCode}`);
+            } else {
+              // Emit room update to remaining players
+              this.io.to(room.roomCode).emit('roomUpdate', {
+                success: true,
+                message: `${player.name} disconnected`,
+                data: {
+                  roomCode: updatedRoom.roomCode,
+                  gameState: updatedRoom.gameState,
+                  playerCount: updatedRoom.players.length,
+                  players: updatedRoom.players.map(p => ({
+                    id: p._id,
+                    name: p.name,
+                    isHost: p.isHost,
+                    socketId: p.socketId
+                  })),
+                  currentPrompt: updatedRoom.currentPrompt,
+                  createdAt: updatedRoom.createdAt
+                }
+              });
+              
+              console.log(`Notified room ${room.roomCode} about ${player.name}'s cleanup`);
+            }
+            
+            // Don't delete room immediately - let the cleanup service handle it
+            // This allows players to rejoin after refresh
+            console.log(`Room ${room.roomCode} has ${updatedRoom.players.length} players remaining`);
+          }
+        } catch (error) {
+          console.error(`Error cleaning up player from room ${room.roomCode}:`, error.message);
+        }
+      }
+      
+      // Delete the player from the database
+      await Player.findByIdAndDelete(player._id);
+      console.log(`Player ${player.name} removed from database`);
+      
+    } catch (error) {
+      console.error('Error cleaning up player:', error);
+    }
+  }
+
+  /**
+   * Handle user disconnection - mark as disconnected but keep in room for rejoin
    * @param {Object} socket - The disconnected socket
    */
   async handleDisconnect(socket) {
     try {
       console.log(`User disconnected: ${socket.id}`);
       
-      // Find and remove player from any room they were in
+      // Find player by socket ID
       const player = await Player.findOne({ socketId: socket.id });
       
       if (player) {
-        console.log(`Removing player ${player.name} (${socket.id}) from rooms`);
+        console.log(`Player ${player.name} (${socket.id}) disconnected - marking as disconnected but keeping in room`);
         
-        // Find rooms containing this player
-        const rooms = await GameRoom.find({ 
-          players: player._id 
-        }).populate('players');
+        // Mark player as disconnected but keep them in the room for rejoin
+        player.isConnected = false;
+        player.disconnectTime = new Date();
+        await player.save();
         
-        for (const room of rooms) {
-          try {
-            // Remove player from room with error handling
-            await room.removePlayer(player._id);
-            
-            // Get updated room to check if it's empty
-            const updatedRoom = await GameRoom.findById(room._id).populate('players');
-            
-            if (updatedRoom && updatedRoom.players.length === 0) {
-              console.log(`Deleting empty room: ${room.roomCode}`);
-              await GameRoom.findByIdAndDelete(room._id);
-            } else if (updatedRoom) {
-              // Notify remaining players about the disconnection
-              this.io.to(room.roomCode).emit('playerLeft', {
-                playerId: player._id,
-                playerName: player.name,
-                message: `${player.name} has left the room`,
-                remainingPlayers: updatedRoom.players.length
+        // Notify room about disconnection
+        await this.notifyRoomAboutDisconnection(player);
+        
+        // If this was the host and there are other connected players, promote one to host
+        if (player.isHost) {
+          const rooms = await GameRoom.find({ players: player._id }).populate('players');
+          for (const room of rooms) {
+            const connectedPlayers = room.players.filter(p => p.isConnected && p._id.toString() !== player._id.toString());
+            if (connectedPlayers.length > 0) {
+              const newHost = connectedPlayers[0];
+              await Player.findByIdAndUpdate(newHost._id, { isHost: true });
+              
+              // Notify room about host change
+              this.emitToRoom(room.roomCode, 'roomUpdate', {
+                success: true,
+                message: `${player.name} disconnected. ${newHost.name} is now the host.`,
+                data: {
+                  roomCode: room.roomCode,
+                  gameState: room.gameState,
+                  playerCount: room.players.length,
+                  players: room.players.map(p => ({
+                    id: p._id,
+                    name: p.name,
+                    isHost: p.isHost,
+                    socketId: p.socketId,
+                    isConnected: p.isConnected
+                  })),
+                  currentPrompt: room.currentPrompt,
+                  createdAt: room.createdAt
+                }
               });
+              
+              console.log(`Player ${player.name} disconnected. ${newHost.name} is now the host of room ${room.roomCode}`);
             }
-          } catch (error) {
-            console.error(`Error removing player from room ${room.roomCode}:`, error.message);
-            // Continue with other rooms even if one fails
           }
         }
-        
-        // Delete the player record
-        await Player.findByIdAndDelete(player._id);
-        console.log(`Player ${player.name} removed from database`);
       }
       
     } catch (error) {
       console.error('Error handling disconnect:', error);
+    }
+  }
+
+  /**
+   * Notify room about player disconnection
+   * @param {Object} player - The disconnected player
+   */
+  async notifyRoomAboutDisconnection(player) {
+    try {
+      // Find rooms containing this player
+      const rooms = await GameRoom.find({ 
+        players: player._id 
+      }).populate('players');
+      
+      for (const room of rooms) {
+        // Emit disconnection notification to room
+        this.emitToRoom(room.roomCode, 'playerDisconnected', {
+          success: true,
+          message: `${player.name} is cooking`,
+          data: {
+            playerId: player._id,
+            playerName: player.name,
+            roomCode: room.roomCode,
+            gameState: room.gameState,
+            playerCount: room.players.length,
+            players: room.players.map(p => ({
+              id: p._id,
+              name: p.name,
+              isHost: p.isHost,
+              socketId: p.socketId,
+              isConnected: p.isConnected
+            })),
+            currentPrompt: room.currentPrompt,
+            createdAt: room.createdAt
+          }
+        });
+        
+        console.log(`Notified room ${room.roomCode} about ${player.name}'s disconnection`);
+      }
+    } catch (error) {
+      console.error('Error notifying room about disconnection:', error);
+    }
+  }
+
+
+  /**
+   * Handle heartbeat from client
+   * @param {Object} socket - The socket sending heartbeat
+   */
+  async handleHeartbeat(socket) {
+    try {
+      const player = await Player.findOne({ socketId: socket.id });
+      if (player) {
+        player.lastSeen = new Date();
+        await player.save();
+      }
+    } catch (error) {
+      console.error('Error handling heartbeat:', error);
     }
   }
 
@@ -143,6 +324,7 @@ class SocketManager {
    * @param {Object} data - The data to send
    */
   emitToRoom(roomCode, event, data) {
+    console.log(`Emitting ${event} to room ${roomCode}:`, data);
     this.io.to(roomCode).emit(event, data);
   }
 
@@ -198,6 +380,7 @@ class SocketManager {
     return Array.from(this.io.sockets.sockets.keys());
   }
 
+
   /**
    * Handle room creation
    * @param {Object} socket - The socket requesting room creation
@@ -237,18 +420,18 @@ class SocketManager {
       // Check if player already exists with this socket ID
       const existingPlayer = await Player.findOne({ socketId: socket.id });
       if (existingPlayer) {
-        socket.emit('error', {
-          message: 'Player already exists for this connection',
-          code: 'PLAYER_ALREADY_EXISTS'
-        });
-        return;
+        // Clean up the existing player (they likely refreshed)
+        console.log(`Player already exists for socket ${socket.id}, cleaning up old player`);
+        await this.cleanupPlayer(existingPlayer);
       }
 
       // Create player
       const player = new Player({
         socketId: socket.id,
         name: playerName.trim(),
-        isHost: true
+        isHost: true,
+        isConnected: true,
+        lastSeen: new Date()
       });
 
       await player.save();
@@ -304,7 +487,8 @@ class SocketManager {
             id: p._id,
             name: p.name,
             isHost: p.isHost,
-            socketId: p.socketId
+            socketId: p.socketId,
+            isConnected: p.isConnected
           })),
           createdAt: populatedRoom.createdAt
         }
@@ -368,14 +552,17 @@ class SocketManager {
       const normalizedRoomCode = roomCode.trim().toUpperCase();
 
       // Check if room exists
+      console.log(`Looking for room with code: ${normalizedRoomCode}`);
       const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
       if (!room) {
+        console.log(`Room ${normalizedRoomCode} not found in database`);
         socket.emit('error', {
           message: 'Room not found. Please check the room code.',
           code: 'ROOM_NOT_FOUND'
         });
         return;
       }
+      console.log(`Room ${normalizedRoomCode} found with ${room.players.length} players`);
 
       // Check if room is full (assuming max 8 players)
       if (room.players.length >= 8) {
@@ -386,31 +573,262 @@ class SocketManager {
         return;
       }
 
-      // Check if player already exists with this socket ID
-      const existingPlayer = await Player.findOne({ socketId: socket.id });
-      if (existingPlayer) {
+      // Check if a player with the same name already exists in the room (and is connected)
+      const existingPlayerWithSameName = room.players.find(p => 
+        p.name.toLowerCase() === playerName.trim().toLowerCase() && p.isConnected
+      );
+      
+      if (existingPlayerWithSameName) {
         socket.emit('error', {
-          message: 'Player already exists for this connection',
-          code: 'PLAYER_ALREADY_EXISTS'
+          message: 'A player with this name is already in the room. Please choose a different name.',
+          code: 'NAME_ALREADY_EXISTS'
         });
         return;
       }
 
-      // Check if player name is already taken in this room
-      const nameExists = room.players.some(p => p.name.toLowerCase() === playerName.trim().toLowerCase());
-      if (nameExists) {
-        socket.emit('error', {
-          message: 'Player name is already taken in this room',
-          code: 'NAME_ALREADY_TAKEN'
+      // First, check if there's a disconnected player with the same name in this room
+      // This handles the case where someone refreshes and tries to rejoin with the same name
+      const disconnectedPlayerInRoom = room.players.find(p => 
+        p.name.toLowerCase() === playerName.trim().toLowerCase() && !p.isConnected
+      );
+      
+      if (disconnectedPlayerInRoom) {
+        console.log(`Found disconnected player ${playerName} in room ${normalizedRoomCode}, reconnecting them`);
+        
+        // Update the disconnected player's socket ID and connection status
+        disconnectedPlayerInRoom.socketId = socket.id;
+        disconnectedPlayerInRoom.isConnected = true;
+        disconnectedPlayerInRoom.lastSeen = new Date();
+        disconnectedPlayerInRoom.disconnectTime = null;
+        await disconnectedPlayerInRoom.save();
+        
+        // Simple rejoin - ensure they don't become host if there's already a host
+        // Only make them host if there's no current host in the room
+        const currentHost = room.players.find(p => p.isConnected && p.isHost);
+        if (!currentHost) {
+          // No current host, make the rejoining player the host
+          await Player.findByIdAndUpdate(disconnectedPlayerInRoom._id, { isHost: true });
+          console.log(`Made ${disconnectedPlayerInRoom.name} the host (no current host)`);
+        } else {
+          // There's already a host, ensure rejoining player is not host
+          await Player.findByIdAndUpdate(disconnectedPlayerInRoom._id, { isHost: false });
+          console.log(`Kept ${disconnectedPlayerInRoom.name} as regular player (${currentHost.name} is host)`);
+        }
+        
+        // Join socket to room
+        socket.join(normalizedRoomCode);
+        
+        // Get updated room data
+        const updatedRoom = await GameRoom.findById(room._id).populate('players');
+        
+        // Emit success response to reconnecting player
+        socket.emit('roomJoined', {
+          success: true,
+          message: 'Successfully reconnected to room',
+          data: {
+            roomCode: updatedRoom.roomCode,
+            gameState: updatedRoom.gameState,
+            playerCount: updatedRoom.players.length,
+            players: updatedRoom.players.map(p => ({
+              id: p._id,
+              name: p.name,
+              isHost: p.isHost,
+              socketId: p.socketId,
+              isConnected: p.isConnected
+            })),
+            currentPrompt: updatedRoom.currentPrompt,
+            createdAt: updatedRoom.createdAt
+          }
         });
+
+        // Notify room about reconnection
+        this.emitToRoom(normalizedRoomCode, 'playerReconnected', {
+          success: true,
+          message: `${disconnectedPlayerInRoom.name} is back from cooking`,
+          data: {
+            playerId: disconnectedPlayerInRoom._id,
+            playerName: disconnectedPlayerInRoom.name,
+            roomCode: updatedRoom.roomCode,
+            gameState: updatedRoom.gameState,
+            playerCount: updatedRoom.players.length,
+            players: updatedRoom.players.map(p => ({
+              id: p._id,
+              name: p.name,
+              isHost: p.isHost,
+              socketId: p.socketId,
+              isConnected: p.isConnected
+            })),
+            currentPrompt: updatedRoom.currentPrompt,
+            createdAt: updatedRoom.createdAt
+          }
+        });
+        
+        console.log(`${disconnectedPlayerInRoom.name} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
         return;
       }
+
+      // Also check for any disconnected players with the same socket ID (shouldn't happen but safety check)
+      const disconnectedPlayerWithSocket = room.players.find(p => 
+        p.socketId === socket.id && !p.isConnected
+      );
+      
+      if (disconnectedPlayerWithSocket) {
+        console.log(`Found disconnected player with same socket ID ${socket.id} in room ${normalizedRoomCode}, reconnecting them`);
+        
+        // Update the disconnected player's socket ID and connection status
+        disconnectedPlayerWithSocket.socketId = socket.id;
+        disconnectedPlayerWithSocket.isConnected = true;
+        disconnectedPlayerWithSocket.lastSeen = new Date();
+        disconnectedPlayerWithSocket.disconnectTime = null;
+        await disconnectedPlayerWithSocket.save();
+        
+        // Simple rejoin - ensure they don't become host if there's already a host
+        // Only make them host if there's no current host in the room
+        const currentHost2 = room.players.find(p => p.isConnected && p.isHost);
+        if (!currentHost2) {
+          // No current host, make the rejoining player the host
+          await Player.findByIdAndUpdate(disconnectedPlayerWithSocket._id, { isHost: true });
+          console.log(`Made ${disconnectedPlayerWithSocket.name} the host (no current host)`);
+        } else {
+          // There's already a host, ensure rejoining player is not host
+          await Player.findByIdAndUpdate(disconnectedPlayerWithSocket._id, { isHost: false });
+          console.log(`Kept ${disconnectedPlayerWithSocket.name} as regular player (${currentHost2.name} is host)`);
+        }
+        
+        // Join socket to room
+        socket.join(normalizedRoomCode);
+        
+        // Get updated room data
+        const updatedRoom = await GameRoom.findById(room._id).populate('players');
+        
+        // Emit success response to reconnecting player
+        socket.emit('roomJoined', {
+          success: true,
+          message: 'Successfully reconnected to room',
+          data: {
+            roomCode: updatedRoom.roomCode,
+            gameState: updatedRoom.gameState,
+            playerCount: updatedRoom.players.length,
+            players: updatedRoom.players.map(p => ({
+              id: p._id,
+              name: p.name,
+              isHost: p.isHost,
+              socketId: p.socketId,
+              isConnected: p.isConnected
+            })),
+            currentPrompt: updatedRoom.currentPrompt,
+            createdAt: updatedRoom.createdAt
+          }
+        });
+
+        // Notify room about reconnection
+        this.emitToRoom(normalizedRoomCode, 'playerReconnected', {
+          success: true,
+          message: `${disconnectedPlayerWithSocket.name} is back from cooking`,
+          data: {
+            playerId: disconnectedPlayerWithSocket._id,
+            playerName: disconnectedPlayerWithSocket.name,
+            roomCode: updatedRoom.roomCode,
+            gameState: updatedRoom.gameState,
+            playerCount: updatedRoom.players.length,
+            players: updatedRoom.players.map(p => ({
+              id: p._id,
+              name: p.name,
+              isHost: p.isHost,
+              socketId: p.socketId,
+              isConnected: p.isConnected
+            })),
+            currentPrompt: updatedRoom.currentPrompt,
+            createdAt: updatedRoom.createdAt
+          }
+        });
+        
+        console.log(`${disconnectedPlayerWithSocket.name} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
+        return;
+      }
+
+      // Check if player already exists with this socket ID
+      const existingPlayer = await Player.findOne({ socketId: socket.id });
+      if (existingPlayer) {
+        // Check if this player is already in the room they're trying to join
+        const playerInRoom = room.players.find(p => p._id.toString() === existingPlayer._id.toString());
+        if (playerInRoom) {
+          // Player is already in this room, just update their socket ID and mark as connected
+          console.log(`Player ${existingPlayer.name} is already in room ${normalizedRoomCode}, updating socket ID and marking as connected`);
+          
+          // Update socket ID and connection status
+          existingPlayer.socketId = socket.id;
+          existingPlayer.isConnected = true;
+          existingPlayer.lastSeen = new Date();
+          existingPlayer.disconnectTime = null;
+          await existingPlayer.save();
+          
+          // Join socket to room
+          socket.join(normalizedRoomCode);
+          
+          // Get updated room data
+          const updatedRoom = await GameRoom.findById(room._id).populate('players');
+          
+          // Emit success response to reconnecting player
+          socket.emit('roomJoined', {
+            success: true,
+            message: 'Successfully reconnected to room',
+            data: {
+              roomCode: updatedRoom.roomCode,
+              gameState: updatedRoom.gameState,
+              playerCount: updatedRoom.players.length,
+              players: updatedRoom.players.map(p => ({
+                id: p._id,
+                name: p.name,
+                isHost: p.isHost,
+                socketId: p.socketId,
+                isConnected: p.isConnected
+              })),
+              currentPrompt: updatedRoom.currentPrompt,
+              createdAt: updatedRoom.createdAt
+            }
+          });
+
+          // Notify room about reconnection
+          this.emitToRoom(normalizedRoomCode, 'playerReconnected', {
+            success: true,
+            message: `${existingPlayer.name} is back from cooking`,
+            data: {
+              playerId: existingPlayer._id,
+              playerName: existingPlayer.name,
+              roomCode: updatedRoom.roomCode,
+              gameState: updatedRoom.gameState,
+              playerCount: updatedRoom.players.length,
+              players: updatedRoom.players.map(p => ({
+                id: p._id,
+                name: p.name,
+                isHost: p.isHost,
+                socketId: p.socketId,
+                isConnected: p.isConnected
+              })),
+              currentPrompt: updatedRoom.currentPrompt,
+              createdAt: updatedRoom.createdAt
+            }
+          });
+          
+          console.log(`${existingPlayer.name} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
+          return;
+        } else {
+          // Player exists but not in this room, clean them up
+          console.log(`Player already exists for socket ${socket.id}, cleaning up old player`);
+          await this.cleanupPlayer(existingPlayer);
+        }
+      }
+
+
 
       // Create player
       const player = new Player({
         socketId: socket.id,
         name: playerName.trim(),
-        isHost: false
+        isHost: false,
+        isConnected: true,
+        lastSeen: new Date()
       });
 
       await player.save();
@@ -436,7 +854,8 @@ class SocketManager {
             id: p._id,
             name: p.name,
             isHost: p.isHost,
-            socketId: p.socketId
+            socketId: p.socketId,
+            isConnected: p.isConnected
           })),
           createdAt: updatedRoom.createdAt
         }
@@ -454,7 +873,8 @@ class SocketManager {
             id: p._id,
             name: p.name,
             isHost: p.isHost,
-            socketId: p.socketId
+            socketId: p.socketId,
+            isConnected: p.isConnected
           })),
           createdAt: updatedRoom.createdAt
         }
@@ -527,15 +947,16 @@ class SocketManager {
       // Leave socket from room
       socket.leave(normalizedRoomCode);
 
-      // If room becomes empty, delete it
-      if (room.players.length === 1) { // Only the leaving player remains
+      // Get updated room data to check remaining players
+      const updatedRoom = await GameRoom.findById(room._id).populate('players');
+      
+      // Check if there are any players left in the room
+      if (updatedRoom.players.length === 0) {
+        // No players left, delete the room
         await GameRoom.findByIdAndDelete(room._id);
         console.log(`Room ${normalizedRoomCode} deleted as it became empty`);
       } else {
-        // Get updated room data
-        const updatedRoom = await GameRoom.findById(room._id).populate('players');
-
-        // Emit room update to remaining players
+        // There are still connected players, notify them
         this.emitToRoom(normalizedRoomCode, 'roomUpdate', {
           success: true,
           message: `${player.name} left the room`,
@@ -547,7 +968,8 @@ class SocketManager {
               id: p._id,
               name: p.name,
               isHost: p.isHost,
-              socketId: p.socketId
+              socketId: p.socketId,
+              isConnected: p.isConnected
             })),
             createdAt: updatedRoom.createdAt
           }
@@ -1230,6 +1652,48 @@ class SocketManager {
         message: 'Internal server error while casting vote',
         code: 'INTERNAL_ERROR'
       });
+    }
+  }
+
+  /**
+   * Start the room cleanup service to remove empty rooms after a delay
+   */
+  startRoomCleanupService() {
+    // Run cleanup every 30 minutes to remove empty rooms that are older than 1 hour
+    setInterval(async () => {
+      try {
+        await this.cleanupEmptyRooms();
+      } catch (error) {
+        console.error('Error in room cleanup service:', error);
+      }
+    }, 30 * 60 * 1000); // 30 minutes
+
+    console.log('Room cleanup service started - will run every 30 minutes for empty rooms');
+  }
+
+  /**
+   * Clean up empty rooms that have been empty for more than 1 hour
+   */
+  async cleanupEmptyRooms() {
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      
+      // Find empty rooms that are older than 1 hour
+      const emptyRooms = await GameRoom.find({
+        $expr: { $eq: [{ $size: '$players' }, 0] },
+        createdAt: { $lt: oneHourAgo }
+      });
+
+      if (emptyRooms.length > 0) {
+        console.log(`Cleaning up ${emptyRooms.length} empty rooms`);
+        
+        for (const room of emptyRooms) {
+          await GameRoom.findByIdAndDelete(room._id);
+          console.log(`Deleted empty room ${room.roomCode}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error cleaning up empty rooms:', error);
     }
   }
 }

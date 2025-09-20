@@ -41,7 +41,6 @@ const gameRoomSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 3600, // Auto-delete after 1 hour
     index: true
   }
 }, {

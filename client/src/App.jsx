@@ -1,73 +1,182 @@
 import { useState, useEffect } from 'react'
 import { io } from 'socket.io-client'
+import HomePage from './pages/HomePage'
+import RoomPage from './pages/RoomPage'
 
 function App() {
+  const [currentView, setCurrentView] = useState('home')
+  const [roomData, setRoomData] = useState(null)
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [isAutoRejoining, setIsAutoRejoining] = useState(false)
 
-  const connectSocket = () => {
+  // Initialize socket connection once for the entire app
+  useEffect(() => {
     const newSocket = io('http://localhost:3001')
     setSocket(newSocket)
     
+    // Track if we're attempting auto-rejoin to suppress error messages
+    
     newSocket.on('connect', () => {
       setIsConnected(true)
-      console.log('Connected to server')
+      console.log('App: Connected to server')
+      
+      // Check if we have stored player info for auto-rejoin
+      const storedPlayer = localStorage.getItem('thekitchen_player')
+      if (storedPlayer) {
+        try {
+          const playerInfo = JSON.parse(storedPlayer)
+          const timeSinceLastActivity = Date.now() - playerInfo.timestamp
+          
+          // Only auto-rejoin if it's been less than 1 hour
+          if (timeSinceLastActivity < 60 * 60 * 1000) {
+            console.log('App: Auto-rejoining player:', playerInfo.playerName, 'to room:', playerInfo.roomCode)
+            setIsAutoRejoining(true)
+            
+            // Add a small delay to ensure server is ready
+            setTimeout(() => {
+              newSocket.emit('joinRoom', {
+                roomCode: playerInfo.roomCode,
+                playerName: playerInfo.playerName
+              })
+            }, 1000)
+          } else {
+            console.log('App: Stored player info is too old, clearing')
+            localStorage.removeItem('thekitchen_player')
+          }
+        } catch (error) {
+          console.error('App: Error parsing stored player info:', error)
+          localStorage.removeItem('thekitchen_player')
+        }
+      }
     })
     
     newSocket.on('disconnect', () => {
       setIsConnected(false)
-      console.log('Disconnected from server')
+      console.log('App: Disconnected from server')
     })
-  }
 
-  // Cleanup socket on component unmount
-  useEffect(() => {
-    return () => {
-      if (socket) {
-        socket.disconnect()
+    newSocket.on('connected', (data) => {
+      console.log('App: Server connection confirmed:', data)
+    })
+
+    // Handle errors from auto-rejoin attempts
+    newSocket.on('error', (error) => {
+      // If it's a room not found error during auto-rejoin, clear stored info silently
+      if (error.code === 'ROOM_NOT_FOUND' && isAutoRejoining) {
+        console.log('App: Room not found during auto-rejoin, clearing stored player info')
+        localStorage.removeItem('thekitchen_player')
+        setIsAutoRejoining(false)
+        return // Don't show error to user during auto-rejoin
+      }
+      
+      // If it's a player not found error during auto-rejoin, clear stored info silently
+      if (error.code === 'PLAYER_NOT_FOUND' && isAutoRejoining) {
+        console.log('App: Player not found during auto-rejoin, clearing stored player info')
+        localStorage.removeItem('thekitchen_player')
+        setIsAutoRejoining(false)
+        return // Don't show error to user during auto-rejoin
+      }
+      
+      // For all other errors, log them normally
+      console.error('App: Socket error:', error)
+    })
+
+    // Start heartbeat to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      if (newSocket.connected) {
+        newSocket.emit('heartbeat')
+      }
+    }, 30000) // Send heartbeat every 30 seconds
+
+    // Handle page refresh/close - clean up player
+    const handleBeforeUnload = (event) => {
+      if (newSocket.connected && roomData) {
+        // Emit leave room event to clean up player
+        // Use sendBeacon for more reliable delivery during page unload
+        try {
+          newSocket.emit('leaveRoom', {
+            roomCode: roomData.roomCode
+          })
+        } catch (error) {
+          console.log('App: Error emitting leaveRoom during unload:', error)
+        }
       }
     }
-  }, [socket])
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    // Cleanup socket on component unmount
+    return () => {
+      clearInterval(heartbeatInterval)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      newSocket.disconnect()
+    }
+  }, [roomData])
+
+  const handleRoomCreated = (data) => {
+    console.log('Room created in App:', data)
+    setRoomData(data)
+    setCurrentView('room')
+    
+    // Reset auto-rejoin flag since we successfully created a room
+    setIsAutoRejoining(false)
+    
+    // Store player info in localStorage for reconnection
+    const playerInfo = {
+      roomCode: data.roomCode,
+      playerName: data.players.find(p => p.isHost)?.name,
+      isHost: true,
+      timestamp: Date.now()
+    }
+    localStorage.setItem('thekitchen_player', JSON.stringify(playerInfo))
+  }
+
+  const handleRoomJoined = (data) => {
+    console.log('Room joined in App:', data)
+    setRoomData(data)
+    setCurrentView('room')
+    
+    // Reset auto-rejoin flag since we successfully joined
+    setIsAutoRejoining(false)
+    
+    // Store player info in localStorage for reconnection
+    const playerInfo = {
+      roomCode: data.roomCode,
+      playerName: data.players.find(p => p.socketId === socket?.id)?.name,
+      isHost: false,
+      timestamp: Date.now()
+    }
+    localStorage.setItem('thekitchen_player', JSON.stringify(playerInfo))
+  }
+
+  const handleBackToHome = () => {
+    setCurrentView('home')
+    setRoomData(null)
+    
+    // Clear stored player info when manually leaving
+    localStorage.removeItem('thekitchen_player')
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-        <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">
-          The Kitchen
-        </h1>
-        
-        <div className="space-y-4">
-          <div className="text-center">
-            <p className="text-gray-600 mb-4">
-              Welcome to The Kitchen - AI Cooking Game
-            </p>
-            <div className={`px-4 py-2 rounded-md text-sm ${
-              isConnected 
-                ? 'bg-green-100 text-green-800' 
-                : 'bg-red-100 text-red-800'
-            }`}>
-              {isConnected ? 'Connected to server' : 'Not connected'}
-            </div>
-          </div>
-          
-          <button
-            onClick={connectSocket}
-            disabled={isConnected}
-            className={`w-full py-2 px-4 rounded-md font-medium ${
-              isConnected
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-          >
-            {isConnected ? 'Connected' : 'Connect to Server'}
-          </button>
-          
-          <div className="text-center text-sm text-gray-500">
-            <p>Step 3: Frontend Foundation Setup Complete</p>
-            <p>Vite + React + Tailwind CSS + Socket.IO Client</p>
-          </div>
-        </div>
-      </div>
+    <div className="App">
+      {currentView === 'home' && (
+        <HomePage 
+          socket={socket}
+          isConnected={isConnected}
+          onRoomCreated={handleRoomCreated}
+          onRoomJoined={handleRoomJoined}
+        />
+      )}
+      
+      {currentView === 'room' && roomData && (
+        <RoomPage 
+          socket={socket}
+          isConnected={isConnected}
+          roomData={roomData}
+          onBackToHome={handleBackToHome}
+        />
+      )}
     </div>
   )
 }
