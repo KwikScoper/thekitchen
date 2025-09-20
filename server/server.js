@@ -36,6 +36,10 @@ const connectDB = async () => {
   }
 };
 
+// Import routes and socket manager
+const gameRoutes = require('./routes/gameRoutes');
+const SocketManager = require('./socketManager');
+
 // Basic route for health check
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -45,14 +49,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
-  
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-  });
-});
+// Use game routes
+app.use('/api/room', gameRoutes);
+
+// Initialize Socket Manager
+const socketManager = new SocketManager(io);
+
+// Socket.IO connection handling (now managed by SocketManager)
+// The SocketManager handles all connection/disconnection logic
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -86,4 +90,4 @@ const startServer = async () => {
 
 startServer();
 
-module.exports = { app, server, io };
+module.exports = { app, server, io, socketManager };
