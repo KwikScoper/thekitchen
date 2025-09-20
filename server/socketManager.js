@@ -1,6 +1,8 @@
 const Player = require('./models/player');
 const GameRoom = require('./models/gameRoom');
+const Submission = require('./models/submission');
 const AIPromptGenerator = require('./services/aiPromptGenerator');
+const ImageUploader = require('./services/imageUploader');
 
 /**
  * Socket.IO Manager for The Kitchen Game
@@ -10,6 +12,7 @@ class SocketManager {
   constructor(io) {
     this.io = io;
     this.aiPromptGenerator = new AIPromptGenerator();
+    this.imageUploader = new ImageUploader();
     this.setupEventHandlers();
   }
 
@@ -46,6 +49,10 @@ class SocketManager {
       // Game management events
       socket.on('startGame', (data) => {
         this.handleStartGame(socket, data);
+      });
+
+      socket.on('submitImage', (data) => {
+        this.handleSubmitImage(socket, data);
       });
 
       // Log successful connection
@@ -687,6 +694,195 @@ class SocketManager {
       console.error('Error starting game:', error);
       socket.emit('error', {
         message: 'Internal server error while starting game',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  }
+
+  /**
+   * Handle image submission
+   * @param {Object} socket - The socket submitting the image
+   * @param {Object} data - Data containing room code and image data
+   */
+  async handleSubmitImage(socket, data) {
+    try {
+      const { roomCode, imageData, fileName, fileSize, mimeType } = data;
+
+      // Validate input
+      if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
+        socket.emit('error', {
+          message: 'Room code must be exactly 4 characters',
+          code: 'INVALID_ROOM_CODE'
+        });
+        return;
+      }
+
+      if (!imageData || typeof imageData !== 'string') {
+        socket.emit('error', {
+          message: 'Image data is required',
+          code: 'INVALID_IMAGE_DATA'
+        });
+        return;
+      }
+
+      const normalizedRoomCode = roomCode.trim().toUpperCase();
+
+      // Find player
+      const player = await Player.findOne({ socketId: socket.id });
+      if (!player) {
+        socket.emit('error', {
+          message: 'Player not found',
+          code: 'PLAYER_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Find room
+      const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
+      if (!room) {
+        socket.emit('error', {
+          message: 'Room not found',
+          code: 'ROOM_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Check if player is in this room
+      const playerInRoom = room.players.find(p => p._id.toString() === player._id.toString());
+      if (!playerInRoom) {
+        socket.emit('error', {
+          message: 'Player is not in this room',
+          code: 'PLAYER_NOT_IN_ROOM'
+        });
+        return;
+      }
+
+      // Check if game is in submitting state
+      if (room.gameState !== 'submitting') {
+        socket.emit('error', {
+          message: 'Game is not in submission phase',
+          code: 'INVALID_GAME_STATE'
+        });
+        return;
+      }
+
+      // Check if cooking time has expired
+      if (room.isCookingTimeExpired()) {
+        socket.emit('error', {
+          message: 'Cooking time has expired',
+          code: 'COOKING_TIME_EXPIRED'
+        });
+        return;
+      }
+
+      // Check if player has already submitted
+      const existingSubmission = await Submission.findOne({ 
+        playerId: player._id, 
+        roomId: room._id 
+      });
+      
+      if (existingSubmission) {
+        socket.emit('error', {
+          message: 'You have already submitted an image for this round',
+          code: 'ALREADY_SUBMITTED'
+        });
+        return;
+      }
+
+      // Create mock file object for validation
+      const mockFile = {
+        originalname: fileName || 'submission.jpg',
+        mimetype: mimeType || 'image/jpeg',
+        size: fileSize || imageData.length,
+        buffer: Buffer.from(imageData, 'base64')
+      };
+
+      // Upload image using the image uploader service
+      const uploadResult = await this.imageUploader.uploadImage(mockFile, player._id);
+      
+      if (!uploadResult.success) {
+        socket.emit('error', {
+          message: `Image upload failed: ${uploadResult.error}`,
+          code: 'UPLOAD_FAILED'
+        });
+        return;
+      }
+
+      // Create submission record
+      const submission = new Submission({
+        playerId: player._id,
+        roomId: room._id,
+        imageUrl: uploadResult.imageUrl
+      });
+
+      await submission.save();
+
+      // Get all submissions for this room to check if all players have submitted
+      const allSubmissions = await Submission.find({ roomId: room._id });
+      const allPlayersSubmitted = allSubmissions.length === room.players.length;
+
+      // Emit submission success to the submitting player
+      socket.emit('submissionSuccess', {
+        success: true,
+        message: 'Image submitted successfully!',
+        data: {
+          submissionId: submission._id,
+          imageUrl: uploadResult.imageUrl,
+          submittedAt: submission.createdAt,
+          allPlayersSubmitted: allPlayersSubmitted,
+          submissionsCount: allSubmissions.length,
+          totalPlayers: room.players.length
+        }
+      });
+
+      // Emit submission update to all players in the room
+      this.emitToRoom(normalizedRoomCode, 'submissionUpdate', {
+        success: true,
+        message: `${player.name} has submitted their dish!`,
+        data: {
+          playerId: player._id,
+          playerName: player.name,
+          submissionsCount: allSubmissions.length,
+          totalPlayers: room.players.length,
+          allPlayersSubmitted: allPlayersSubmitted,
+          remainingTime: room.getRemainingCookingTime()
+        }
+      });
+
+      // If all players have submitted, automatically transition to voting phase
+      if (allPlayersSubmitted) {
+        await room.startVoting();
+        
+        // Get updated room data
+        const updatedRoom = await GameRoom.findById(room._id).populate('players');
+        
+        // Emit voting started event to all players
+        this.emitToRoom(normalizedRoomCode, 'votingStarted', {
+          success: true,
+          message: 'All players have submitted! Voting phase has begun.',
+          data: {
+            roomCode: updatedRoom.roomCode,
+            gameState: updatedRoom.gameState,
+            votingTimeLimit: updatedRoom.votingTimeLimit,
+            playerCount: updatedRoom.players.length,
+            players: updatedRoom.players.map(p => ({
+              id: p._id,
+              name: p.name,
+              isHost: p.isHost,
+              socketId: p.socketId
+            }))
+          }
+        });
+
+        console.log(`All players submitted in room ${normalizedRoomCode}, voting phase started`);
+      }
+
+      console.log(`${player.name} (${socket.id}) submitted image in room ${normalizedRoomCode}`);
+
+    } catch (error) {
+      console.error('Error submitting image:', error);
+      socket.emit('error', {
+        message: 'Internal server error while submitting image',
         code: 'INTERNAL_ERROR'
       });
     }
