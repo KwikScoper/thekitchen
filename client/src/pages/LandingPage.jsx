@@ -105,9 +105,54 @@ const FooterText = styled(Typography)(({ theme }) => ({
   }
 }))
 
+// Custom Image Component - Add your image URLs here
+const CustomImage = ({ imageUrl, altText, width = 100, height = 100, style = {} }) => (
+  <img 
+    src={imageUrl}
+    alt={altText}
+    style={{
+      width: width,
+      height: height,
+      borderRadius: '8px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+      objectFit: 'cover',
+      ...style
+    }}
+    onError={(e) => e.target.style.display = 'none'}
+  />
+)
+
 const LandingPage = ({ onPlayWithFriends, onPlayOnline }) => {
   return (
     <LandingContainer>
+      {/* Custom Image 1 - Top Left Corner */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/650BZNyw/Grilled-Cheese.png"
+        altText="Decorative image 1"
+        width={300}
+        height={300}
+        style={{
+          position: 'absolute',
+          top: 20,
+          left: 20,
+          opacity: 0.7
+        }}
+      />
+
+      {/* Custom Image 2 - Top Right Corner */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/Sxxk7tM9/Pizza.png"
+        altText="Decorative image 2"
+        width={300}
+        height={300}
+        style={{
+          position: 'absolute',
+          top: 20,
+          right: 20,
+          opacity: 0.7
+        }}
+      />
+
       {/* Logo with Egg Icon */}
       <Box sx={{ textAlign: 'center', mb: 4 }}>
         <LogoText>
@@ -159,6 +204,18 @@ const LandingPage = ({ onPlayWithFriends, onPlayOnline }) => {
         </ActionButton>
       </Box>
 
+      {/* Custom Image 3 - Center Decorative */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/yYVHsrnG/Sushi.png"
+        altText="Decorative image 3"
+        width={80}
+        height={80}
+        style={{
+          marginTop: 20,
+          opacity: 0.6
+        }}
+      />
+
       {/* Footer Disclaimer */}
       <FooterText>
         By continuing, you agree to our{' '}
@@ -171,8 +228,27 @@ const LandingPage = ({ onPlayWithFriends, onPlayOnline }) => {
         </a>
         .
       </FooterText>
+
+      {/* Custom Image 4 - Bottom Right Corner */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/MZmCPmxm/Kebab.png"
+        altText="Decorative image 4"
+        width={50}
+        height={50}
+        style={{
+          position: 'absolute',
+          bottom: 20,
+          right: 20,
+          opacity: 0.5
+        }}
+      />
     </LandingContainer>
   )
+
+
+
+
+  
 }
 
 export default LandingPage
