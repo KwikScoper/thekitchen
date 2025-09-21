@@ -55,9 +55,6 @@ class SocketManager {
         this.handleContinueGame(socket, data);
       });
 
-      socket.on('nextToGame', (data) => {
-        this.handleNextToGame(socket, data);
-      });
 
 
       // Voting events
@@ -906,12 +903,6 @@ class SocketManager {
         difficulty: difficulty
       });
 
-      // Select a random location based on category
-      console.log('Server: About to select location for category:', category);
-      const selectedLocation = this.aiPromptGenerator.selectRandomLocation(category);
-      console.log('Server: Selected location result:', selectedLocation);
-      console.log('Server: Type of selectedLocation:', typeof selectedLocation);
-
       // Start the actual game
       await room.startGame(prompt);
 
@@ -919,7 +910,7 @@ class SocketManager {
       const updatedRoom = await GameRoom.findById(room._id).populate('players');
 
       // Emit game continued event to all players in the room
-      const responseData = {
+      this.emitToRoom(normalizedRoomCode, 'gameContinued', {
         success: true,
         message: 'Game started successfully!',
         data: {
@@ -929,8 +920,6 @@ class SocketManager {
           gameStartTime: updatedRoom.gameStartTime,
           cookingTimeLimit: updatedRoom.cookingTimeLimit,
           timerLength: timerLength,
-          category: category,
-          selectedLocation: selectedLocation,
           playerCount: updatedRoom.players.length,
           players: updatedRoom.players.map(p => ({
             id: p._id,
@@ -939,15 +928,11 @@ class SocketManager {
             socketId: p.socketId
           }))
         }
-      };
-      
-      console.log('Sending gameContinued data:', JSON.stringify(responseData, null, 2));
-      this.emitToRoom(normalizedRoomCode, 'gameContinued', responseData);
+      });
 
       console.log(`Game continued in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
       console.log(`Category: ${category}, Difficulty: ${difficulty}, TimerLength: ${timerLength}`);
       console.log(`Prompt: "${prompt}"`);
-      console.log(`Selected Location: "${selectedLocation}"`);
 
     } catch (error) {
       console.error('Error continuing game:', error);
@@ -958,106 +943,6 @@ class SocketManager {
     }
   }
 
-  /**
-   * Handle next to game screen request (host-only)
-   * @param {Object} socket - The socket requesting to go to game screen
-   * @param {Object} data - Data containing room code
-   */
-  async handleNextToGame(socket, data) {
-    try {
-      const { roomCode } = data;
-
-      // Validate input
-      if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
-        socket.emit('error', {
-          message: 'Room code must be exactly 4 characters',
-          code: 'INVALID_ROOM_CODE'
-        });
-        return;
-      }
-
-      const normalizedRoomCode = roomCode.trim().toUpperCase();
-
-      // Find player
-      const player = await Player.findOne({ socketId: socket.id });
-      if (!player) {
-        socket.emit('error', {
-          message: 'Player not found',
-          code: 'PLAYER_NOT_FOUND'
-        });
-        return;
-      }
-
-      // Find room
-      const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
-      if (!room) {
-        socket.emit('error', {
-          message: 'Room not found',
-          code: 'ROOM_NOT_FOUND'
-        });
-        return;
-      }
-
-      // Check if player is in this room
-      const playerInRoom = room.players.find(p => p._id.toString() === player._id.toString());
-      if (!playerInRoom) {
-        socket.emit('error', {
-          message: 'Player is not in this room',
-          code: 'PLAYER_NOT_IN_ROOM'
-        });
-        return;
-      }
-
-      // Check if player is the host
-      if (!player.isHost) {
-        socket.emit('error', {
-          message: 'Only the host can proceed to game screen',
-          code: 'NOT_HOST'
-        });
-        return;
-      }
-
-      // Check if game is in submitting state
-      if (room.gameState !== 'submitting') {
-        socket.emit('error', {
-          message: 'Game must be in submitting state to proceed to game screen',
-          code: 'INVALID_GAME_STATE'
-        });
-        return;
-      }
-
-      // Update room state to gameScreen
-      room.gameState = 'gameScreen';
-      await room.save();
-
-      // Emit next to game event to all players in the room
-      this.emitToRoom(normalizedRoomCode, 'nextToGame', {
-        success: true,
-        message: 'Proceeding to game screen!',
-        data: {
-          roomCode: room.roomCode,
-          gameState: 'gameScreen',
-          currentPrompt: room.currentPrompt,
-          playerCount: room.players.length,
-          players: room.players.map(p => ({
-            id: p._id,
-            name: p.name,
-            isHost: p.isHost,
-            socketId: p.socketId
-          }))
-        }
-      });
-
-      console.log(`Next to game screen triggered in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
-
-    } catch (error) {
-      console.error('Error proceeding to game screen:', error);
-      socket.emit('error', {
-        message: 'Internal server error while proceeding to game screen',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
 
 
   /**

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Button, Box, Typography } from '@mui/material'
+import { Button } from '@mui/material'
 import { styled } from '@mui/material/styles'
 
 // Styled components
@@ -34,41 +34,17 @@ const FinishedCookingButton = styled(Button)(({ theme }) => ({
   }
 }))
 
-const LocationBox = styled(Box)(({ theme }) => ({
-  backgroundColor: 'rgba(255, 255, 255, 0.9)',
-  borderRadius: theme.spacing(1),
-  padding: theme.spacing(2),
-  margin: theme.spacing(2, 0),
-  border: '2px solid #333',
-  textAlign: 'center',
-  maxWidth: '400px',
-  width: '100%'
-}))
-
-const LocationText = styled(Typography)(({ theme }) => ({
-  fontFamily: '"Grandstander", cursive',
-  fontSize: '1.2rem',
-  fontWeight: 'bold',
-  color: '#333',
-  textTransform: 'lowercase'
-}))
-
 const GameScreen = ({ 
   currentPrompt, 
   timeRemaining, 
   players, 
   onLeaveGame,
   onFinishedCooking,
-  timerLength = '30 mins',
-  category = 'Hemisphere',
-  selectedLocation = null
+  timerLength = '30 mins'
 }) => {
   const [timer, setTimer] = useState(0)
   const [isTimerRunning, setIsTimerRunning] = useState(false)
   const timerIntervalRef = useRef(null)
-
-  // Debug logging
-  console.log('GameScreen props:', { currentPrompt, category, selectedLocation })
 
   // Timer options mapping
   const timeOptions = {
@@ -135,19 +111,10 @@ const GameScreen = ({
       </LeaveButton>
 
       {/* Challenge Text - Upper Half */}
-      <div className="flex-1 flex flex-col items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
         <p className="text-black text-xl font-normal text-center" style={{fontFamily: '"Grandstander", cursive', textTransform: 'lowercase'}}>
           challenge: {currentPrompt || 'yap yap yap'}
         </p>
-        
-        {/* Location Display Box */}
-        {selectedLocation && (
-          <LocationBox>
-            <LocationText>
-              {selectedLocation}
-            </LocationText>
-          </LocationBox>
-        )}
       </div>
 
       {/* Timer Display - Lower Half */}

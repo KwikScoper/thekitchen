@@ -6,28 +6,6 @@
 
 class AIPromptGenerator {
   constructor() {
-    // Location lists for each category
-    this.locationLists = {
-      Hemisphere: [
-        'Northern Hemisphere', 'Southern Hemisphere', 'Eastern Hemisphere', 'Western Hemisphere'
-      ],
-      Continent: [
-        'Africa', 'Antarctica', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'
-      ],
-      Region: [
-        'Mediterranean', 'Scandinavia', 'Caribbean', 'Middle East', 'Southeast Asia', 
-        'Central America', 'Balkans', 'Himalayas', 'Amazon Basin', 'Sahara Desert',
-        'Arctic Circle', 'Pacific Islands', 'Great Plains', 'Andes Mountains', 'Siberia'
-      ],
-      Country: [
-        'Italy', 'Japan', 'Mexico', 'India', 'France', 'Thailand', 'Spain', 'Brazil',
-        'Greece', 'Morocco', 'Turkey', 'Peru', 'Vietnam', 'Ethiopia', 'Lebanon',
-        'South Korea', 'Argentina', 'Portugal', 'Nigeria', 'Poland', 'Egypt',
-        'Indonesia', 'Germany', 'Colombia', 'Malaysia', 'Russia', 'Kenya', 'Iran',
-        'Philippines', 'Chile', 'Hungary', 'Ghana', 'Romania', 'Ukraine', 'Tunisia'
-      ]
-    };
-
     // Expanded prompt templates for development
     this.promptTemplates = [
       // Emotional & Memory-Based Prompts
@@ -208,36 +186,6 @@ class AIPromptGenerator {
       "A meal that's wonderfully unexpected",
       "Something that's beautifully bizarre"
     ];
-  }
-
-  /**
-   * Select a random location based on category
-   * @param {string} category - The category (Hemisphere, Continent, Region, Country)
-   * @returns {string} A random location from the specified category
-   */
-  selectRandomLocation(category) {
-    try {
-      console.log('selectRandomLocation called with category:', category);
-      console.log('Available categories:', Object.keys(this.locationLists));
-      console.log('Location lists:', this.locationLists);
-      
-      const locations = this.locationLists[category] || this.locationLists.Hemisphere;
-      console.log('Selected locations array:', locations);
-      console.log('Locations array length:', locations.length);
-      
-      const randomIndex = Math.floor(Math.random() * locations.length);
-      console.log('Random index:', randomIndex);
-      
-      const selectedLocation = locations[randomIndex];
-      console.log('Selected location:', selectedLocation);
-      
-      console.log(`Selected location for category ${category}: "${selectedLocation}"`);
-      return selectedLocation;
-    } catch (error) {
-      console.error('Error selecting random location:', error);
-      // Fallback to first hemisphere option
-      return this.locationLists.Hemisphere[0];
-    }
   }
 
   /**

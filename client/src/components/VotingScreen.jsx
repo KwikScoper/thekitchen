@@ -23,26 +23,7 @@ const Title = styled(Typography)(({ theme }) => ({
   textTransform: 'lowercase'
 }))
 
-const ImageContainer = styled(Box)(({ theme }) => ({
-  width: '80%',
-  maxWidth: '500px',
-  height: '400px',
-  backgroundColor: '#f0f0f0',
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2.5),
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  overflow: 'hidden',
-  boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
-}))
 
-const SubmissionImage = styled('img')({
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  borderRadius: '15px'
-})
 
 const PlaceholderText = styled(Typography)(({ theme }) => ({
   color: '#999',
@@ -52,28 +33,104 @@ const PlaceholderText = styled(Typography)(({ theme }) => ({
   textTransform: 'lowercase'
 }))
 
-const StarContainer = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  gap: theme.spacing(1.25),
-  marginBottom: theme.spacing(2.5)
+const PlayerListContainer = styled(Box)(({ theme }) => ({
+  width: '100%',
+  maxWidth: '600px',
+  backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  borderRadius: theme.spacing(2),
+  padding: theme.spacing(3),
+  marginBottom: theme.spacing(3),
+  boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
 }))
 
-const StarButton = styled(Button)(({ theme }) => ({
-  background: 'none',
-  border: 'none',
-  fontSize: '2.5rem',
+const PlayerItem = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: theme.spacing(2),
+  marginBottom: theme.spacing(2),
+  backgroundColor: '#f8f9fa',
+  borderRadius: theme.spacing(1),
+  border: '1px solid #e9ecef'
+}))
+
+const PlayerNameText = styled(Typography)(({ theme }) => ({
+  fontSize: '1.2rem',
+  color: '#333',
+  fontWeight: 'bold',
+  fontFamily: '"Grandstander", cursive',
+  textTransform: 'lowercase',
+  flex: 1
+}))
+
+const CustomRatingSelect = styled('select')(({ theme }) => ({
+  minWidth: '80px',
+  backgroundColor: 'white',
+  borderRadius: theme.spacing(1),
+  border: '1px solid #ddd',
+  padding: theme.spacing(1),
+  fontSize: '1rem',
+  color: '#333',
+  fontFamily: '"Grandstander", cursive',
   cursor: 'pointer',
-  transition: 'transform 0.2s ease',
-  minWidth: 'auto',
-  padding: theme.spacing(0.5),
   '&:hover': {
-    transform: 'scale(1.1)',
-    backgroundColor: 'transparent'
+    border: '1px solid #999'
+  },
+  '&:focus': {
+    border: '1px solid #4CAF50',
+    outline: 'none'
+  }
+}))
+
+const SubmitAllButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  backgroundColor: '#4CAF50',
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(2, 4),
+  fontSize: '1.1rem',
+  fontWeight: 'bold',
+  textTransform: 'lowercase',
+  width: '100%',
+  maxWidth: '300px',
+  '&:hover': {
+    backgroundColor: '#45a049'
   },
   '&:disabled': {
-    cursor: 'not-allowed',
-    opacity: 0.5
+    backgroundColor: '#BDBDBD',
+    color: '#757575'
   }
+}))
+
+const ProgressContainer = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: theme.spacing(1),
+  marginBottom: theme.spacing(2)
+}))
+
+const ProgressBar = styled(Box)(({ theme }) => ({
+  width: '100%',
+  maxWidth: '300px',
+  height: '8px',
+  backgroundColor: '#e0e0e0',
+  borderRadius: theme.spacing(1),
+  overflow: 'hidden'
+}))
+
+const ProgressFill = styled(Box)(({ theme }) => ({
+  height: '100%',
+  backgroundColor: '#4CAF50',
+  transition: 'width 0.3s ease'
+}))
+
+const ProgressText = styled(Typography)(({ theme }) => ({
+  fontSize: '1rem',
+  color: '#666',
+  marginBottom: theme.spacing(1.25),
+  textAlign: 'center',
+  fontFamily: '"Comic Sans MS", cursive, sans-serif'
 }))
 
 const LeaveButton = styled(Button)(({ theme }) => ({
@@ -94,23 +151,7 @@ const LeaveButton = styled(Button)(({ theme }) => ({
   }
 }))
 
-const PlayerName = styled(Typography)(({ theme }) => ({
-  fontSize: '1.5rem',
-  color: '#333',
-  marginBottom: theme.spacing(1.25),
-  textAlign: 'center',
-  fontWeight: 'bold',
-  fontFamily: '"Grandstander", cursive',
-  textTransform: 'lowercase'
-}))
 
-const ProgressText = styled(Typography)(({ theme }) => ({
-  fontSize: '1rem',
-  color: '#666',
-  marginBottom: theme.spacing(1.25),
-  textAlign: 'center',
-  fontFamily: '"Comic Sans MS", cursive, sans-serif'
-}))
 
 const VotingScreen = ({ 
   players = [], 
@@ -120,52 +161,43 @@ const VotingScreen = ({
   isLoading = false,
   hasVoted = false 
 }) => {
-  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
-  const [selectedRating, setSelectedRating] = useState(0)
+  // Filter out the current player (only if currentPlayerId is valid)
+  const otherPlayers = currentPlayerId 
+    ? players.filter(player => player._id !== currentPlayerId)
+    : players
   
-  // Filter out the current player
-  const otherPlayers = players.filter(player => 
-    player._id !== currentPlayerId
-  )
+  // Individual state for each player's rating
+  const [playerRatings, setPlayerRatings] = useState({})
   
-  const currentPlayer = otherPlayers[currentPlayerIndex]
+  // Calculate progress
+  const ratedPlayers = Object.keys(playerRatings).filter(playerId => playerRatings[playerId] !== '').length
+  const totalPlayers = otherPlayers.length
+  const progressPercentage = totalPlayers > 0 ? (ratedPlayers / totalPlayers) * 100 : 0
   
-  useEffect(() => {
-    // Reset rating when switching to next player
-    setSelectedRating(0)
-  }, [currentPlayerIndex])
-  
-  const handleStarClick = (rating) => {
+  const handleRatingChange = (playerId, rating) => {
     if (hasVoted || isLoading) return
-    setSelectedRating(rating)
-  }
-  
-  const handleVote = () => {
-    if (!currentPlayer || selectedRating === 0 || hasVoted || isLoading) return
     
-    onVote(currentPlayer._id, selectedRating)
+    setPlayerRatings(prev => {
+      const newRatings = {
+        ...prev,
+        [playerId]: rating
+      }
+      return newRatings
+    })
   }
   
-  const handleNext = () => {
-    if (currentPlayerIndex < otherPlayers.length - 1) {
-      setCurrentPlayerIndex(currentPlayerIndex + 1)
-    }
+  const handleSubmitAllVotes = () => {
+    if (hasVoted || isLoading || ratedPlayers !== totalPlayers) return
+    
+    // Submit all votes
+    Object.entries(playerRatings).forEach(([playerId, rating]) => {
+      if (rating !== '') {
+        onVote(playerId, rating)
+      }
+    })
   }
   
-  const renderStars = () => {
-    return [1, 2, 3, 4, 5].map((star) => (
-      <StarButton
-        key={star}
-        onClick={() => handleStarClick(star)}
-        disabled={hasVoted || isLoading}
-        style={{
-          color: star <= selectedRating ? '#ffd700' : '#ddd'
-        }}
-      >
-        ★
-      </StarButton>
-    ))
-  }
+  const isAllRated = ratedPlayers === totalPlayers && totalPlayers > 0
   
   if (otherPlayers.length === 0) {
     return (
@@ -174,9 +206,9 @@ const VotingScreen = ({
           ← leave game
         </LeaveButton>
         <Title variant="h1">rate each player!</Title>
-        <ImageContainer>
+        <PlayerListContainer>
           <PlaceholderText>No players to vote on</PlaceholderText>
-        </ImageContainer>
+        </PlayerListContainer>
       </VotingContainer>
     )
   }
@@ -189,42 +221,54 @@ const VotingScreen = ({
       
       <Title variant="h1">rate each player!</Title>
       
-      <PlayerName>
-        {currentPlayer?.name || 'Unknown Player'}
-      </PlayerName>
+      <ProgressContainer>
+        <ProgressText>
+          {ratedPlayers} of {totalPlayers} players rated
+        </ProgressText>
+        <ProgressBar>
+          <ProgressFill style={{ width: `${progressPercentage}%` }} />
+        </ProgressBar>
+      </ProgressContainer>
       
-      <ImageContainer>
-        <PlaceholderText>rate this player's cooking!</PlaceholderText>
-      </ImageContainer>
+      <PlayerListContainer>
+        {otherPlayers.map((player, index) => {
+          const playerId = player._id
+          const currentRating = playerRatings[playerId] || ''
+          
+          return (
+            <PlayerItem key={`player-${playerId || index}`}>
+              <PlayerNameText>
+                {player.name}
+              </PlayerNameText>
+              <CustomRatingSelect
+                value={currentRating}
+                onChange={(e) => {
+                  const newRating = parseInt(e.target.value)
+                  if (!isNaN(newRating)) {
+                    handleRatingChange(playerId, newRating)
+                  }
+                }}
+                disabled={hasVoted || isLoading}
+              >
+                <option value="">rate</option>
+                <option value={1}>1 ⭐</option>
+                <option value={2}>2 ⭐⭐</option>
+                <option value={3}>3 ⭐⭐⭐</option>
+                <option value={4}>4 ⭐⭐⭐⭐</option>
+                <option value={5}>5 ⭐⭐⭐⭐⭐</option>
+              </CustomRatingSelect>
+            </PlayerItem>
+          )
+        })}
+      </PlayerListContainer>
       
-      <StarContainer>
-        {renderStars()}
-      </StarContainer>
-      
-      <ProgressText>
-        {currentPlayerIndex + 1} of {otherPlayers.length} players
-      </ProgressText>
-      
-      {selectedRating > 0 && !hasVoted && (
-        <Button
-          onClick={handleVote}
+      {isAllRated && !hasVoted && (
+        <SubmitAllButton
+          onClick={handleSubmitAllVotes}
           disabled={isLoading}
-          variant="contained"
-          sx={{
-            background: '#4CAF50',
-            color: 'white',
-            borderRadius: '8px',
-            padding: '12px 24px',
-            fontSize: '1.1rem',
-            fontFamily: '"Grandstander", cursive',
-            textTransform: 'lowercase',
-            '&:hover': {
-              backgroundColor: '#45a049'
-            }
-          }}
         >
-          {isLoading ? 'voting...' : 'submit vote'}
-        </Button>
+          {isLoading ? 'submitting votes...' : 'submit all votes'}
+        </SubmitAllButton>
       )}
       
       {hasVoted && (
@@ -234,7 +278,7 @@ const VotingScreen = ({
           textAlign: 'center',
           fontFamily: '"Comic Sans MS", cursive, sans-serif'
         }}>
-          ✓ Vote submitted! Waiting for other players...
+          ✓ All votes submitted! Waiting for other players...
         </Typography>
       )}
     </VotingContainer>

@@ -65,6 +65,12 @@ A real-time multiplayer cooking game where players receive AI-generated cooking 
 - **AI Service**: OpenAI/Gemini (placeholder)
 - **Image Service**: Cloudinary (placeholder)
 
+## Live Demo
+
+🚀 **[Play The Kitchen on Vercel](https://thekitchen-one.vercel.app)**
+
+Experience the full multiplayer cooking game with AI-generated prompts and real-time voting!
+
 ## Contributing
 
 This project is in active development. See the implementation plan for current development phases.

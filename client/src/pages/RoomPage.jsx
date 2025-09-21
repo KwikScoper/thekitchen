@@ -240,73 +240,6 @@ const ContinueButton = styled(Button)(({ theme }) => ({
   }
 }))
 
-const GlobeSpinningContainer = styled(Box)(({ theme }) => ({
-  minHeight: '100vh',
-  backgroundColor: '#DBF0C5', // Light mint green background
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: theme.spacing(4),
-  position: 'relative'
-}))
-
-const GlobeSpinningText = styled(Typography)(({ theme }) => ({
-  fontFamily: '"Grandstander", cursive',
-  fontSize: '2rem',
-  fontWeight: 'normal',
-  color: 'black',
-  textAlign: 'center',
-  marginBottom: theme.spacing(8),
-  textTransform: 'lowercase'
-}))
-
-const ChallengeText = styled(Typography)(({ theme }) => ({
-  fontFamily: '"Grandstander", cursive',
-  fontSize: '1.5rem',
-  fontWeight: 'normal',
-  color: 'black',
-  textAlign: 'center',
-  position: 'absolute',
-  bottom: theme.spacing(8),
-  textTransform: 'lowercase'
-}))
-
-const GlobeLeaveButton = styled(Button)(({ theme }) => ({
-  fontFamily: '"Grandstander", cursive',
-  position: 'absolute',
-  bottom: theme.spacing(3),
-  left: theme.spacing(3),
-  backgroundColor: '#9C27B0', // Light purple background
-  color: 'white', // White text
-  borderRadius: theme.spacing(1),
-  padding: theme.spacing(1, 2),
-  fontSize: '0.875rem',
-  textTransform: 'lowercase',
-  '&:hover': {
-    backgroundColor: '#7B1FA2'
-  }
-}))
-
-const GlobeNextButton = styled(Button)(({ theme }) => ({
-  fontFamily: '"Grandstander", cursive',
-  backgroundColor: '#F44336', // Red background
-  color: 'white',
-  borderRadius: theme.spacing(1),
-  padding: theme.spacing(2, 4),
-  fontSize: '1rem',
-  fontWeight: 'bold',
-  textTransform: 'lowercase',
-  width: '200px',
-  marginTop: theme.spacing(4),
-  '&:hover': {
-    backgroundColor: '#D32F2F'
-  },
-  '&:disabled': {
-    backgroundColor: '#BDBDBD',
-    color: '#757575'
-  }
-}))
 
 const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   const [currentRoom, setCurrentRoom] = useState(roomData)
@@ -336,27 +269,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   const [category, setCategory] = useState('Hemisphere')
   const [difficulty, setDifficulty] = useState('Easy')
   const [timerLength, setTimerLength] = useState('30 mins')
-  const [selectedLocation, setSelectedLocation] = useState(null)
-
-  // Fallback location lists for client-side selection if server fails
-  const FALLBACK_LOCATIONS = {
-    Hemisphere: ['Northern Hemisphere', 'Southern Hemisphere', 'Eastern Hemisphere', 'Western Hemisphere'],
-    Continent: ['Africa', 'Antarctica', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'],
-    Region: ['Mediterranean', 'Scandinavia', 'Caribbean', 'Middle East', 'Southeast Asia', 'Central America', 'Balkans', 'Himalayas', 'Amazon Basin', 'Sahara Desert', 'Arctic Circle', 'Pacific Islands', 'Great Plains', 'Andes Mountains', 'Siberia'],
-    Country: ['Italy', 'Japan', 'Mexico', 'India', 'France', 'Thailand', 'Spain', 'Brazil', 'Greece', 'Morocco', 'Turkey', 'Peru', 'Vietnam', 'Ethiopia', 'Lebanon', 'South Korea', 'Argentina', 'Portugal', 'Nigeria', 'Poland', 'Egypt', 'Indonesia', 'Germany', 'Colombia', 'Malaysia', 'Russia', 'Kenya', 'Iran', 'Philippines', 'Chile', 'Hungary', 'Ghana', 'Romania', 'Ukraine', 'Tunisia']
-  }
-
-  // Function to get fallback location
-  const getFallbackLocation = (cat) => {
-    const locations = FALLBACK_LOCATIONS[cat] || FALLBACK_LOCATIONS.Hemisphere
-    return locations[Math.floor(Math.random() * locations.length)]
-  }
-
-
-  // Debug timer length changes
-  useEffect(() => {
-    console.log('RoomPage: timerLength state changed to:', timerLength)
-  }, [timerLength])
 
 
   // Set up socket event listeners and join room
@@ -415,50 +327,28 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     })
 
     socket.on('gameContinued', (data) => {
-      console.log('=== GAME CONTINUED EVENT HANDLER CALLED ===')
-      console.log('RoomPage: gameContinued received:', data)
-      console.log('RoomPage: Full data object:', JSON.stringify(data, null, 2))
-      console.log('RoomPage: timerLength from server:', data.data?.timerLength)
-      console.log('RoomPage: current timerLength state:', timerLength)
-      console.log('RoomPage: isHost:', isHost)
+      console.log('Game continued:', data)
+      
+      // Update players and host status from server data
+      if (data.data?.players) {
+        setPlayers(data.data.players)
+        const currentPlayer = data.data.players.find(p => p.socketId === socket.id)
+        const newIsHost = currentPlayer?.isHost || false
+        setIsHost(newIsHost)
+      }
       
       // Update timer length for non-host players
       if (data.data?.timerLength && !isHost) {
-        console.log('RoomPage: Updating timerLength for non-host player:', data.data.timerLength)
         setTimerLength(data.data.timerLength)
-        console.log('RoomPage: setTimerLength called with:', data.data.timerLength)
-      } else {
-        console.log('RoomPage: Not updating timerLength - isHost:', isHost, 'serverTimerLength:', data.data?.timerLength)
       }
       
-      setGameState('submitting') // Now transition to actual game
+      setGameState('gameScreen') // Go directly to game screen
       setCurrentPrompt(data.data?.currentPrompt || '')
-      
-      // Update category and selected location from server
-      if (data.data?.category) {
-        console.log('RoomPage: Setting category from server:', data.data.category)
-        setCategory(data.data.category)
-      }
-      if (data.data?.selectedLocation) {
-        console.log('RoomPage: Setting selectedLocation from server:', data.data.selectedLocation)
-        setSelectedLocation(data.data.selectedLocation)
-      } else {
-        console.log('RoomPage: No selectedLocation in server data!')
-        console.log('RoomPage: Available keys in data.data:', Object.keys(data.data || {}))
-      }
       setGameStartTime(new Date())
       setSuccess('Game started! Check your cooking prompt below.')
       setIsLoading(false)
     })
 
-    socket.on('nextToGame', (data) => {
-      console.log('Next to game:', data)
-      console.log('RoomPage: selectedLocation before nextToGame:', selectedLocation)
-      console.log('RoomPage: category before nextToGame:', category)
-      setGameState('gameScreen')
-      setSuccess('Game screen activated!')
-      setIsLoading(false)
-    })
 
 
     socket.on('votingStarted', (data) => {
@@ -534,7 +424,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       socket.off('playerDisconnected')
       socket.off('gameStarted')
       socket.off('gameContinued')
-      socket.off('nextToGame')
       socket.off('votingStarted')
       socket.off('voteSuccess')
       socket.off('voteUpdate')
@@ -590,8 +479,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     setError('')
     setSuccess('')
     
-    console.log('RoomPage: handleContinue - timerLength selected:', timerLength)
-    
     const emitData = {
       roomCode: currentRoom.roomCode,
       category: category,
@@ -599,25 +486,10 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       timerLength: timerLength
     }
     
-    console.log('RoomPage: Emitting continueGame with data:', emitData)
-    console.log('RoomPage: timerLength being sent:', timerLength)
-    
     // Emit continueGame event to proceed to actual game start
     socket.emit('continueGame', emitData)
   }
 
-  const handleNextToGame = () => {
-    if (!socket || !isConnected || !isHost) return
-    
-    setIsLoading(true)
-    setError('')
-    setSuccess('')
-    
-    // Emit event to notify all players to transition to game screen
-    socket.emit('nextToGame', {
-      roomCode: currentRoom.roomCode
-    })
-  }
 
   const handleFinishedCooking = () => {
     // Move directly to voting phase
@@ -697,10 +569,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
           <FormControl fullWidth>
             <StyledSelect
               value={timerLength}
-              onChange={(e) => {
-                console.log('RoomPage: Timer length changed to:', e.target.value)
-                setTimerLength(e.target.value)
-              }}
+              onChange={(e) => setTimerLength(e.target.value)}
               displayEmpty
             >
               <MenuItem value="30 mins">30 mins</MenuItem>
@@ -737,35 +606,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     </WaitingContainer>
   )
 
-  // Render globe spinning screen
-  const renderGlobeSpinning = () => (
-    <GlobeSpinningContainer>
-      {/* Leave Game Button */}
-      <GlobeLeaveButton onClick={handleLeaveRoom}>
-        ← leave game
-      </GlobeLeaveButton>
-
-      {/* Globe Spinning Text */}
-      <GlobeSpinningText>
-        globe spinning
-      </GlobeSpinningText>
-
-      {/* Challenge Text */}
-      <ChallengeText>
-        challenge: {currentPrompt || 'yap yap yap'}
-      </ChallengeText>
-
-      {/* Next Button (Host Only) */}
-      {isHost && (
-        <GlobeNextButton
-          onClick={handleNextToGame}
-          disabled={isLoading}
-        >
-          {isLoading ? 'starting...' : 'next'}
-        </GlobeNextButton>
-      )}
-    </GlobeSpinningContainer>
-  )
 
   // Render lobby view
   const renderLobby = () => (
@@ -823,7 +663,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   )
 
   // Render different views based on game state and host status
-  console.log('RoomPage render - gameState:', gameState, 'isHost:', isHost, 'timerLength:', timerLength)
   
   if (gameState === 'hostSetup') {
     if (isHost) {
@@ -831,17 +670,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     } else {
       return renderWaitingScreen()
     }
-  } else if (gameState === 'submitting') {
-    return renderGlobeSpinning()
   } else if (gameState === 'gameScreen') {
-    console.log('RoomPage: Rendering GameScreen with selectedLocation:', selectedLocation)
-    console.log('RoomPage: Rendering GameScreen with category:', category)
-    console.log('RoomPage: Rendering GameScreen with currentPrompt:', currentPrompt)
-    
-    // Use fallback location if server didn't provide one
-    const locationToUse = selectedLocation || getFallbackLocation(category)
-    console.log('RoomPage: Using location:', locationToUse)
-    
     return (
       <GameScreen
         currentPrompt={currentPrompt}
@@ -850,8 +679,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
         onLeaveGame={handleLeaveRoom}
         onFinishedCooking={handleFinishedCooking}
         timerLength={timerLength}
-        category={category}
-        selectedLocation={locationToUse}
       />
     )
   } else if (gameState === 'voting') {
