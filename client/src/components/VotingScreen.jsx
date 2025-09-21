@@ -163,7 +163,10 @@ const VotingScreen = ({
 }) => {
   // Filter out the current player (only if currentPlayerId is valid)
   const otherPlayers = currentPlayerId 
-    ? players.filter(player => player._id !== currentPlayerId)
+    ? players.filter(player => {
+        const isNotCurrentPlayer = player._id !== currentPlayerId
+        return isNotCurrentPlayer
+      })
     : players
   
   // Individual state for each player's rating
@@ -176,6 +179,12 @@ const VotingScreen = ({
   
   const handleRatingChange = (playerId, rating) => {
     if (hasVoted || isLoading) return
+    
+    // Safety check: prevent self-rating
+    if (playerId === currentPlayerId) {
+      console.warn('Attempted to rate self - this should not happen!', { playerId, currentPlayerId })
+      return
+    }
     
     setPlayerRatings(prev => {
       const newRatings = {
@@ -191,7 +200,7 @@ const VotingScreen = ({
     
     // Submit all votes
     Object.entries(playerRatings).forEach(([playerId, rating]) => {
-      if (rating !== '') {
+      if (rating !== '' && playerId !== currentPlayerId) {
         onVote(playerId, rating)
       }
     })

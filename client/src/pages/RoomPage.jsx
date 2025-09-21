@@ -244,7 +244,13 @@ const ContinueButton = styled(Button)(({ theme }) => ({
 const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   const [currentRoom, setCurrentRoom] = useState(roomData)
   const [gameState, setGameState] = useState(roomData?.gameState || 'lobby')
-  const [players, setPlayers] = useState(roomData?.players || [])
+  const [players, setPlayers] = useState(() => {
+    const initialPlayers = roomData?.players || []
+    return initialPlayers.map(player => ({
+      ...player,
+      _id: player._id || player.id
+    }))
+  })
   const [currentPrompt, setCurrentPrompt] = useState(roomData?.currentPrompt || '')
   const [isHost, setIsHost] = useState(false)
   const [error, setError] = useState('')
@@ -281,12 +287,18 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     socket.on('roomUpdate', (data) => {
       console.log('RoomPage: Room update received:', data)
       setCurrentRoom(data.data)
-      setPlayers(data.data?.players || [])
+      
+      // Normalize player data to use _id field
+      const normalizedPlayers = (data.data?.players || []).map(player => ({
+        ...player,
+        _id: player._id || player.id
+      }))
+      setPlayers(normalizedPlayers)
       setGameState(data.data?.gameState || 'lobby')
       setCurrentPrompt(data.data?.currentPrompt || '')
       
       // Update host status
-      const currentPlayer = data.data?.players?.find(p => p.socketId === socket.id)
+      const currentPlayer = normalizedPlayers.find(p => p.socketId === socket.id)
       setIsHost(currentPlayer?.isHost || false)
     })
 
@@ -304,7 +316,11 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       console.log('Player reconnected:', data)
       setSuccess(`${data.data?.playerName || 'A player'} is back from cooking`)
       if (data.data?.players) {
-        setPlayers(data.data.players)
+        const normalizedPlayers = data.data.players.map(player => ({
+          ...player,
+          _id: player._id || player.id
+        }))
+        setPlayers(normalizedPlayers)
       }
     })
 
@@ -312,7 +328,11 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       console.log('Player disconnected:', data)
       setSuccess(`${data.data?.playerName || 'A player'} is cooking`)
       if (data.data?.players) {
-        setPlayers(data.data.players)
+        const normalizedPlayers = data.data.players.map(player => ({
+          ...player,
+          _id: player._id || player.id
+        }))
+        setPlayers(normalizedPlayers)
       }
     })
 
@@ -331,8 +351,12 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       
       // Update players and host status from server data
       if (data.data?.players) {
-        setPlayers(data.data.players)
-        const currentPlayer = data.data.players.find(p => p.socketId === socket.id)
+        const normalizedPlayers = data.data.players.map(player => ({
+          ...player,
+          _id: player._id || player.id
+        }))
+        setPlayers(normalizedPlayers)
+        const currentPlayer = normalizedPlayers.find(p => p.socketId === socket.id)
         const newIsHost = currentPlayer?.isHost || false
         setIsHost(newIsHost)
       }
@@ -395,7 +419,13 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       console.log('RoomPage: Room joined event received:', data)
       if (data.success && data.data) {
         setCurrentRoom(data.data)
-        setPlayers(data.data?.players || [])
+        
+        // Normalize player data to use _id field
+        const normalizedPlayers = (data.data?.players || []).map(player => ({
+          ...player,
+          _id: player._id || player.id
+        }))
+        setPlayers(normalizedPlayers)
         setGameState(data.data?.gameState || 'lobby')
         setCurrentPrompt(data.data?.currentPrompt || '')
         
@@ -409,7 +439,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
         }
         
         // Update host status
-        const currentPlayer = data.data?.players?.find(p => p.socketId === socket.id)
+        const currentPlayer = normalizedPlayers.find(p => p.socketId === socket.id)
         setIsHost(currentPlayer?.isHost || false)
       }
     })
