@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { io } from 'socket.io-client'
+import LandingPage from './pages/LandingPage'
 import HomePage from './pages/HomePage'
 import RoomPage from './pages/RoomPage'
 
 function App() {
-  const [currentView, setCurrentView] = useState('home')
+  const [currentView, setCurrentView] = useState('landing')
   const [roomData, setRoomData] = useState(null)
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
@@ -28,8 +29,9 @@ function App() {
           const playerInfo = JSON.parse(storedPlayer)
           const timeSinceLastActivity = Date.now() - playerInfo.timestamp
           
-          // Only auto-rejoin if it's been less than 1 hour
-          if (timeSinceLastActivity < 60 * 60 * 1000) {
+          // Only auto-rejoin if it's been less than 5 minutes (more conservative)
+          // This prevents ghost players from staying in rooms too long
+          if (timeSinceLastActivity < 5 * 60 * 1000) {
             console.log('App: Auto-rejoining player:', playerInfo.playerName, 'to room:', playerInfo.roomCode)
             setIsAutoRejoining(true)
             
@@ -78,6 +80,15 @@ function App() {
         return // Don't show error to user during auto-rejoin
       }
       
+      // If it's a name already taken error during auto-rejoin, this might be a race condition
+      // Clear stored info and let user manually rejoin
+      if (error.code === 'NAME_ALREADY_TAKEN' && isAutoRejoining) {
+        console.log('App: Name already taken during auto-rejoin, clearing stored player info')
+        localStorage.removeItem('thekitchen_player')
+        setIsAutoRejoining(false)
+        return // Don't show error to user during auto-rejoin
+      }
+      
       // For all other errors, log them normally
       console.error('App: Socket error:', error)
     })
@@ -102,6 +113,9 @@ function App() {
           console.log('App: Error emitting leaveRoom during unload:', error)
         }
       }
+      
+      // Clear localStorage to prevent auto-rejoin issues
+      localStorage.removeItem('thekitchen_player')
     }
 
     window.addEventListener('beforeunload', handleBeforeUnload)
@@ -150,7 +164,23 @@ function App() {
     localStorage.setItem('thekitchen_player', JSON.stringify(playerInfo))
   }
 
+  const handlePlayWithFriends = () => {
+    setCurrentView('home')
+  }
+
+  const handlePlayOnline = () => {
+    // For now, just show an alert since this functionality isn't implemented
+    alert('Play Online feature coming soon! For now, please use "Play with Friends" to create or join a room.')
+  }
+
   const handleBackToHome = () => {
+    // Clean up player from room before leaving
+    if (socket && socket.connected && roomData) {
+      socket.emit('leaveRoom', {
+        roomCode: roomData.roomCode
+      })
+    }
+    
     setCurrentView('home')
     setRoomData(null)
     
@@ -158,14 +188,37 @@ function App() {
     localStorage.removeItem('thekitchen_player')
   }
 
+  const handleBackToLanding = () => {
+    // Clean up player from room before leaving
+    if (socket && socket.connected && roomData) {
+      socket.emit('leaveRoom', {
+        roomCode: roomData.roomCode
+      })
+    }
+    
+    setCurrentView('landing')
+    setRoomData(null)
+    
+    // Clear stored player info when going back to landing
+    localStorage.removeItem('thekitchen_player')
+  }
+
   return (
     <div className="App">
+      {currentView === 'landing' && (
+        <LandingPage 
+          onPlayWithFriends={handlePlayWithFriends}
+          onPlayOnline={handlePlayOnline}
+        />
+      )}
+      
       {currentView === 'home' && (
         <HomePage 
           socket={socket}
           isConnected={isConnected}
           onRoomCreated={handleRoomCreated}
           onRoomJoined={handleRoomJoined}
+          onBackToLanding={handleBackToLanding}
         />
       )}
       

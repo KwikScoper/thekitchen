@@ -13,9 +13,13 @@ const gameRoomSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Player'
   }],
+  originalHostName: {
+    type: String,
+    default: null
+  },
   gameState: {
     type: String,
-    enum: ['lobby', 'submitting', 'voting', 'results'],
+    enum: ['lobby', 'hostSetup', 'gameScreen', 'voting', 'results'],
     default: 'lobby'
   },
   currentPrompt: {
@@ -38,6 +42,28 @@ const gameRoomSchema = new mongoose.Schema({
     min: 60, // Minimum 1 minute
     max: 1800 // Maximum 30 minutes
   },
+  votes: [{
+    voterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Player',
+      required: true
+    },
+    targetPlayerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Player',
+      required: true
+    },
+    rating: {
+      type: Number,
+      min: 1,
+      max: 5,
+      required: true
+    },
+    votedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   createdAt: {
     type: Date,
     default: Date.now,
@@ -82,15 +108,15 @@ gameRoomSchema.methods.removePlayer = async function(playerId) {
 
 // Method to start the game
 gameRoomSchema.methods.startGame = async function(prompt) {
-  if (this.gameState !== 'lobby') {
-    throw new Error('Game can only be started from lobby state');
+  if (this.gameState !== 'lobby' && this.gameState !== 'hostSetup') {
+    throw new Error('Game can only be started from lobby or hostSetup state');
   }
   
   if (this.players.length < 2) {
     throw new Error('At least 2 players required to start game');
   }
   
-  this.gameState = 'submitting';
+  this.gameState = 'gameScreen';
   this.currentPrompt = prompt;
   this.gameStartTime = new Date();
   
@@ -99,8 +125,8 @@ gameRoomSchema.methods.startGame = async function(prompt) {
 
 // Method to transition to voting phase
 gameRoomSchema.methods.startVoting = async function() {
-  if (this.gameState !== 'submitting') {
-    throw new Error('Can only start voting from submitting state');
+  if (this.gameState !== 'gameScreen') {
+    throw new Error('Can only start voting from gameScreen state');
   }
   
   this.gameState = 'voting';
@@ -135,7 +161,7 @@ gameRoomSchema.methods.resetToLobby = async function() {
 
 // Method to check if cooking time has expired
 gameRoomSchema.methods.isCookingTimeExpired = function() {
-  if (!this.gameStartTime || this.gameState !== 'submitting') {
+  if (!this.gameStartTime || this.gameState !== 'gameScreen') {
     return false;
   }
   
@@ -145,7 +171,7 @@ gameRoomSchema.methods.isCookingTimeExpired = function() {
 
 // Method to get remaining cooking time
 gameRoomSchema.methods.getRemainingCookingTime = function() {
-  if (!this.gameStartTime || this.gameState !== 'submitting') {
+  if (!this.gameStartTime || this.gameState !== 'gameScreen') {
     return 0;
   }
   

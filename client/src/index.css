@@ -1,3 +1,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --custom-yellow: #F3C23A;
+    --custom-green: #DBF0C5;
+  }
+}
+
+@layer utilities {
+  .bg-custom-yellow {
+    background-color: var(--custom-yellow);
+  }
+  .bg-custom-green {
+    background-color: var(--custom-green);
+  }
+  .border-custom-yellow {
+    border-color: var(--custom-yellow);
+  }
+  .border-custom-green {
+    border-color: var(--custom-green);
+  }
+}

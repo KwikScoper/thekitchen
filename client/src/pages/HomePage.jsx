@@ -1,6 +1,92 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { Box, Button, Typography, TextField, Alert } from '@mui/material'
+import { styled } from '@mui/material/styles'
 
-const HomePage = ({ socket, isConnected, onRoomJoined, onRoomCreated }) => {
+// Styled components
+const HomeContainer = styled(Box)(({ theme }) => ({
+  minHeight: '100vh',
+  backgroundColor: '#DBF0C5', // Light green background
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(4),
+  position: 'relative'
+}))
+
+const InputContainer = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: theme.spacing(4),
+  width: '100%',
+  maxWidth: 300
+}))
+
+const InputLabel = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1rem',
+  fontWeight: 'bold',
+  color: 'black',
+  textAlign: 'left',
+  width: '100%',
+  textTransform: 'lowercase'
+}))
+
+const StyledTextField = styled(TextField)(({ theme }) => ({
+  width: '100%',
+  '& .MuiOutlinedInput-root': {
+    backgroundColor: 'transparent',
+    '& fieldset': {
+      border: 'none',
+      borderBottom: '1px solid #D3D3D3'
+    },
+    '&:hover fieldset': {
+      borderBottom: '1px solid #999'
+    },
+    '&.Mui-focused fieldset': {
+      borderBottom: '1px solid #000'
+    }
+  },
+  '& .MuiInputBase-input': {
+    fontFamily: '"Grandstander", cursive',
+    padding: theme.spacing(1, 0),
+    fontSize: '1rem',
+    textTransform: 'lowercase'
+  }
+}))
+
+const LeaveButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  position: 'absolute',
+  bottom: theme.spacing(3),
+  left: theme.spacing(3),
+  backgroundColor: '#9C27B0', // Purple background
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(1, 2),
+  fontSize: '0.875rem',
+  textTransform: 'lowercase',
+  '&:hover': {
+    backgroundColor: '#7B1FA2'
+  }
+}))
+
+const SubmitButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  backgroundColor: '#424242',
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(1.5, 3),
+  fontSize: '1rem',
+  textTransform: 'lowercase',
+  marginTop: theme.spacing(2),
+  '&:hover': {
+    backgroundColor: '#303030'
+  }
+}))
+
+const HomePage = ({ socket, isConnected, onRoomJoined, onRoomCreated, onBackToLanding }) => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -9,9 +95,8 @@ const HomePage = ({ socket, isConnected, onRoomJoined, onRoomCreated }) => {
   const [playerName, setPlayerName] = useState('')
   const [roomCode, setRoomCode] = useState('')
   
-  // Room creation state
-  const [showCreateRoom, setShowCreateRoom] = useState(false)
-  const [showJoinRoom, setShowJoinRoom] = useState(false)
+  // View state - 'create' or 'join'
+  const [currentView, setCurrentView] = useState('join') // Default to join view
 
   // Set up socket event listeners
   useEffect(() => {
@@ -158,192 +243,97 @@ const HomePage = ({ socket, isConnected, onRoomJoined, onRoomCreated }) => {
     }
   }
 
-  const resetForms = () => {
-    setPlayerName('')
-    setRoomCode('')
+  const handleLeaveGame = () => {
+    if (onBackToLanding) {
+      onBackToLanding()
+    }
+  }
+
+  const toggleView = () => {
+    setCurrentView(currentView === 'join' ? 'create' : 'join')
     setError('')
     setSuccess('')
-    setShowCreateRoom(false)
-    setShowJoinRoom(false)
+    setPlayerName('')
+    setRoomCode('')
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            🍳 The Kitchen
-          </h1>
-          <p className="text-gray-600 text-lg">
-            AI Cooking Game
-          </p>
-          
-          {/* Connection Status */}
-          <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium mt-4 ${
-            isConnected 
-              ? 'bg-green-100 text-green-800' 
-              : 'bg-red-100 text-red-800'
-          }`}>
-            <div className={`w-2 h-2 rounded-full mr-2 ${
-              isConnected ? 'bg-green-500' : 'bg-red-500'
-            }`}></div>
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </div>
-        </div>
+    <HomeContainer>
+      {/* Leave Game Button */}
+      <LeaveButton onClick={handleLeaveGame}>
+        ← leave game
+      </LeaveButton>
 
+      {/* Main Content */}
+      <InputContainer>
         {/* Error/Success Messages */}
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
+          <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
             {error}
-          </div>
+          </Alert>
         )}
         
         {success && (
-          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6">
+          <Alert severity="success" sx={{ width: '100%', mb: 2 }}>
             {success}
-          </div>
+          </Alert>
         )}
 
-        {/* Main Action Buttons */}
-        {!showCreateRoom && !showJoinRoom && (
-          <div className="space-y-4">
-            <button
-              onClick={() => setShowCreateRoom(true)}
-              disabled={!isConnected || isLoading}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-            >
-              Create Room
-            </button>
-            
-            <button
-              onClick={() => setShowJoinRoom(true)}
-              disabled={!isConnected || isLoading}
-              className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-            >
-              Join Room
-            </button>
-          </div>
-        )}
+        {/* Form */}
+        <Box component="form" onSubmit={currentView === 'join' ? handleJoinRoom : handleCreateRoom} sx={{ width: '100%' }}>
+          {/* Game Code Input (only for join view) */}
+          {currentView === 'join' && (
+            <Box sx={{ mb: 3 }}>
+              <InputLabel>game code</InputLabel>
+              <StyledTextField
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                placeholder="Code"
+                fullWidth
+                disabled={isLoading}
+                inputProps={{ maxLength: 4 }}
+              />
+            </Box>
+          )}
 
-        {/* Create Room Form */}
-        {showCreateRoom && (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-gray-800 text-center">Create Room</h2>
-            
-            <form onSubmit={handleCreateRoom} className="space-y-4">
-              <div>
-                <label htmlFor="createPlayerName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Your Name
-                </label>
-                <input
-                  type="text"
-                  id="createPlayerName"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  placeholder="Enter your name"
-                  maxLength={50}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  disabled={isLoading}
-                />
-              </div>
-              
-              <div className="flex space-x-3">
-                <button
-                  type="submit"
-                  disabled={isLoading || !playerName.trim()}
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-                >
-                  {isLoading ? 'Creating...' : 'Create Room'}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={resetForms}
-                  disabled={isLoading}
-                  className="flex-1 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
+          {/* Player Name Input */}
+          <Box sx={{ mb: 3 }}>
+            <InputLabel>player name</InputLabel>
+            <StyledTextField
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Name"
+              fullWidth
+              disabled={isLoading}
+              inputProps={{ maxLength: 50 }}
+            />
+          </Box>
 
-        {/* Join Room Form */}
-        {showJoinRoom && (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-gray-800 text-center">Join Room</h2>
-            
-            <form onSubmit={handleJoinRoom} className="space-y-4">
-              <div>
-                <label htmlFor="joinPlayerName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Your Name
-                </label>
-                <input
-                  type="text"
-                  id="joinPlayerName"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  placeholder="Enter your name"
-                  maxLength={50}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={isLoading}
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="roomCode" className="block text-sm font-medium text-gray-700 mb-2">
-                  Room Code
-                </label>
-                <input
-                  type="text"
-                  id="roomCode"
-                  value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  placeholder="Enter 4-letter room code"
-                  maxLength={4}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg font-mono tracking-widest"
-                  disabled={isLoading}
-                />
-              </div>
-              
-              <div className="flex space-x-3">
-                <button
-                  type="submit"
-                  disabled={isLoading || !playerName.trim() || !roomCode.trim()}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-                >
-                  {isLoading ? 'Joining...' : 'Join Room'}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={resetForms}
-                  disabled={isLoading}
-                  className="flex-1 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
+          {/* Submit Button */}
+          <SubmitButton
+            type="submit"
+            disabled={isLoading || !playerName.trim() || (currentView === 'join' && !roomCode.trim())}
+            fullWidth
+          >
+            {isLoading ? 'loading...' : (currentView === 'join' ? 'join game' : 'create game')}
+          </SubmitButton>
+        </Box>
 
-        {/* Game Description */}
-        <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-semibold text-gray-800 mb-2">How to Play:</h3>
-          <ul className="text-sm text-gray-600 space-y-1">
-            <li>• Create or join a room with friends</li>
-            <li>• Receive an AI-generated cooking prompt</li>
-            <li>• Cook a real meal based on the prompt</li>
-            <li>• Submit photos of your creation</li>
-            <li>• Vote on everyone's dishes</li>
-            <li>• See who wins!</li>
-          </ul>
-        </div>
-      </div>
-    </div>
+        {/* Toggle Button */}
+        <Button
+          onClick={toggleView}
+          sx={{
+            fontFamily: '"Grandstander", cursive',
+            color: '#666',
+            textTransform: 'lowercase',
+            fontSize: '0.875rem',
+            mt: 2
+          }}
+        >
+          {currentView === 'join' ? 'create a game instead' : 'join a game instead'}
+        </Button>
+      </InputContainer>
+    </HomeContainer>
   )
 }
 

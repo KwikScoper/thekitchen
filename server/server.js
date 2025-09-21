@@ -39,6 +39,7 @@ const connectDB = async () => {
 // Import routes and socket manager
 const gameRoutes = require('./routes/gameRoutes');
 const SocketManager = require('./socketManager');
+const Player = require('./models/player');
 
 // Basic route for health check
 app.get('/api/health', (req, res) => {
@@ -74,10 +75,22 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
+// Cleanup function to remove orphaned player records
+const cleanupOrphanedPlayers = async () => {
+  try {
+    const result = await Player.deleteMany({});
+    console.log(`Cleaned up ${result.deletedCount} orphaned player records`);
+  } catch (error) {
+    console.error('Error cleaning up player records:', error.message);
+  }
+};
+
 // Start server
 const startServer = async () => {
   try {
     await connectDB();
+    // Clean up orphaned player records on server startup
+    await cleanupOrphanedPlayers();
   } catch (error) {
     console.error('Database connection failed:', error.message);
   }

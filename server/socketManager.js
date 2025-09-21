@@ -1,6 +1,5 @@
 const Player = require('./models/player');
 const GameRoom = require('./models/gameRoom');
-const Submission = require('./models/submission');
 const AIPromptGenerator = require('./services/aiPromptGenerator');
 const ImageUploader = require('./services/imageUploader');
 
@@ -14,14 +13,14 @@ class SocketManager {
     this.aiPromptGenerator = new AIPromptGenerator();
     this.imageUploader = new ImageUploader();
     this.setupEventHandlers();
-    this.startRoomCleanupService();
+    this.startPeriodicCleanup();
   }
 
   /**
    * Set up all Socket.IO event handlers
    */
   setupEventHandlers() {
-    this.io.on('connection', async (socket) => {
+    this.io.on('connection', (socket) => {
       console.log(`User connected: ${socket.id}`);
       
       // Handle user disconnection
@@ -52,9 +51,14 @@ class SocketManager {
         this.handleStartGame(socket, data);
       });
 
-      socket.on('submitImage', (data) => {
-        this.handleSubmitImage(socket, data);
+      socket.on('continueGame', (data) => {
+        this.handleContinueGame(socket, data);
       });
+
+      socket.on('nextToGame', (data) => {
+        this.handleNextToGame(socket, data);
+      });
+
 
       // Voting events
       socket.on('startVoting', (data) => {
@@ -65,247 +69,82 @@ class SocketManager {
         this.handleCastVote(socket, data);
       });
 
-      // Heartbeat event for connection monitoring
-      socket.on('heartbeat', () => {
-        this.handleHeartbeat(socket);
+      // Log successful connection
+      socket.emit('connected', {
+        message: 'Successfully connected to The Kitchen server',
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
       });
-
-      // Clean up any orphaned players with this socket ID (shouldn't happen, but safety check)
-      try {
-        const orphanedPlayer = await Player.findOne({ socketId: socket.id });
-        if (orphanedPlayer) {
-          console.log(`Cleaning up orphaned player ${orphanedPlayer.name} with socket ${socket.id}`);
-          await this.cleanupPlayer(orphanedPlayer);
-        }
-
-        // Log successful connection
-        socket.emit('connected', {
-          message: 'Successfully connected to The Kitchen server',
-          socketId: socket.id,
-          timestamp: new Date().toISOString(),
-          isReconnection: false
-        });
-      } catch (error) {
-        console.error('Error handling connection:', error);
-        socket.emit('connected', {
-          message: 'Successfully connected to The Kitchen server',
-          socketId: socket.id,
-          timestamp: new Date().toISOString(),
-          isReconnection: false
-        });
-      }
     });
   }
 
   /**
-   * Clean up a player from database and all rooms
-   * @param {Object} player - The player to clean up
-   */
-  async cleanupPlayer(player) {
-    try {
-      console.log(`Cleaning up player ${player.name} (${player.socketId})`);
-      
-      // Find rooms containing this player
-      const rooms = await GameRoom.find({ 
-        players: player._id 
-      }).populate('players');
-      
-      for (const room of rooms) {
-        try {
-          // Remove player from the room
-          const updatedRoom = await GameRoom.findByIdAndUpdate(
-            room._id,
-            { $pull: { players: player._id } },
-            { new: true }
-          ).populate('players');
-          
-          if (updatedRoom) {
-            // If this was the host and there are other players, make the first remaining player the host
-            if (player.isHost && updatedRoom.players.length > 0) {
-              const newHost = updatedRoom.players[0];
-              await Player.findByIdAndUpdate(newHost._id, { isHost: true });
-              
-              // Update the room data with new host
-              const roomWithNewHost = await GameRoom.findById(room._id).populate('players');
-              
-              // Emit room update with new host
-              this.io.to(room.roomCode).emit('roomUpdate', {
-                success: true,
-                message: `${player.name} disconnected. ${newHost.name} is now the host.`,
-                data: {
-                  roomCode: roomWithNewHost.roomCode,
-                  gameState: roomWithNewHost.gameState,
-                  playerCount: roomWithNewHost.players.length,
-                  players: roomWithNewHost.players.map(p => ({
-                    id: p._id,
-                    name: p.name,
-                    isHost: p.isHost,
-                    socketId: p.socketId
-                  })),
-                  currentPrompt: roomWithNewHost.currentPrompt,
-                  createdAt: roomWithNewHost.createdAt
-                }
-              });
-              
-              console.log(`Player ${player.name} cleaned up. ${newHost.name} is now the host of room ${room.roomCode}`);
-            } else {
-              // Emit room update to remaining players
-              this.io.to(room.roomCode).emit('roomUpdate', {
-                success: true,
-                message: `${player.name} disconnected`,
-                data: {
-                  roomCode: updatedRoom.roomCode,
-                  gameState: updatedRoom.gameState,
-                  playerCount: updatedRoom.players.length,
-                  players: updatedRoom.players.map(p => ({
-                    id: p._id,
-                    name: p.name,
-                    isHost: p.isHost,
-                    socketId: p.socketId
-                  })),
-                  currentPrompt: updatedRoom.currentPrompt,
-                  createdAt: updatedRoom.createdAt
-                }
-              });
-              
-              console.log(`Notified room ${room.roomCode} about ${player.name}'s cleanup`);
-            }
-            
-            // Don't delete room immediately - let the cleanup service handle it
-            // This allows players to rejoin after refresh
-            console.log(`Room ${room.roomCode} has ${updatedRoom.players.length} players remaining`);
-          }
-        } catch (error) {
-          console.error(`Error cleaning up player from room ${room.roomCode}:`, error.message);
-        }
-      }
-      
-      // Delete the player from the database
-      await Player.findByIdAndDelete(player._id);
-      console.log(`Player ${player.name} removed from database`);
-      
-    } catch (error) {
-      console.error('Error cleaning up player:', error);
-    }
-  }
-
-  /**
-   * Handle user disconnection - mark as disconnected but keep in room for rejoin
+   * Handle user disconnection
    * @param {Object} socket - The disconnected socket
    */
   async handleDisconnect(socket) {
     try {
       console.log(`User disconnected: ${socket.id}`);
       
-      // Find player by socket ID
+      // Find and remove player from any room they were in
       const player = await Player.findOne({ socketId: socket.id });
       
       if (player) {
-        console.log(`Player ${player.name} (${socket.id}) disconnected - marking as disconnected but keeping in room`);
+        console.log(`Removing player ${player.name} (${socket.id}) from rooms`);
         
-        // Mark player as disconnected but keep them in the room for rejoin
-        player.isConnected = false;
-        player.disconnectTime = new Date();
-        await player.save();
+        // Find rooms containing this player
+        const rooms = await GameRoom.find({ 
+          players: player._id 
+        }).populate('players');
         
-        // Notify room about disconnection
-        await this.notifyRoomAboutDisconnection(player);
-        
-        // If this was the host and there are other connected players, promote one to host
-        if (player.isHost) {
-          const rooms = await GameRoom.find({ players: player._id }).populate('players');
-          for (const room of rooms) {
-            const connectedPlayers = room.players.filter(p => p.isConnected && p._id.toString() !== player._id.toString());
-            if (connectedPlayers.length > 0) {
-              const newHost = connectedPlayers[0];
-              await Player.findByIdAndUpdate(newHost._id, { isHost: true });
+        for (const room of rooms) {
+          try {
+            // Check if the disconnecting player is the host
+            const wasHost = player.isHost;
+            
+            // Remove player from room with error handling
+            await room.removePlayer(player._id);
+            
+            // Get updated room to check if it's empty
+            const updatedRoom = await GameRoom.findById(room._id).populate('players');
+            
+            if (updatedRoom && updatedRoom.players.length === 0) {
+              console.log(`Room ${room.roomCode} is now empty - keeping it alive for potential rejoin`);
+              // Don't delete empty rooms immediately - keep them for potential rejoin
+              // Rooms will be cleaned up by the periodic cleanup task
+            } else if (updatedRoom) {
+              // If the disconnecting player was the host, assign host status to another player
+              if (wasHost && updatedRoom.players.length > 0) {
+                const newHost = updatedRoom.players[0]; // Assign to first remaining player
+                await Player.findByIdAndUpdate(newHost._id, { isHost: true });
+                console.log(`Host status transferred from ${player.name} to ${newHost.name} in room ${room.roomCode}`);
+              }
               
-              // Notify room about host change
-              this.emitToRoom(room.roomCode, 'roomUpdate', {
-                success: true,
-                message: `${player.name} disconnected. ${newHost.name} is now the host.`,
-                data: {
-                  roomCode: room.roomCode,
-                  gameState: room.gameState,
-                  playerCount: room.players.length,
-                  players: room.players.map(p => ({
-                    id: p._id,
-                    name: p.name,
-                    isHost: p.isHost,
-                    socketId: p.socketId,
-                    isConnected: p.isConnected
-                  })),
-                  currentPrompt: room.currentPrompt,
-                  createdAt: room.createdAt
-                }
+              // Notify remaining players about the disconnection
+              this.io.to(room.roomCode).emit('playerLeft', {
+                playerId: player._id,
+                playerName: player.name,
+                message: `${player.name} has left the room`,
+                remainingPlayers: updatedRoom.players.length,
+                wasHost: wasHost
               });
-              
-              console.log(`Player ${player.name} disconnected. ${newHost.name} is now the host of room ${room.roomCode}`);
             }
+          } catch (error) {
+            console.error(`Error removing player from room ${room.roomCode}:`, error.message);
+            // Continue with other rooms even if one fails
           }
         }
+        
+        // Delete the player record
+        await Player.findByIdAndDelete(player._id);
+        console.log(`Player ${player.name} removed from database`);
+      } else {
+        // No player found with this socket ID - this might be a duplicate disconnect
+        console.log(`No player found for socket ${socket.id} - might be duplicate disconnect`);
       }
       
     } catch (error) {
       console.error('Error handling disconnect:', error);
-    }
-  }
-
-  /**
-   * Notify room about player disconnection
-   * @param {Object} player - The disconnected player
-   */
-  async notifyRoomAboutDisconnection(player) {
-    try {
-      // Find rooms containing this player
-      const rooms = await GameRoom.find({ 
-        players: player._id 
-      }).populate('players');
-      
-      for (const room of rooms) {
-        // Emit disconnection notification to room
-        this.emitToRoom(room.roomCode, 'playerDisconnected', {
-          success: true,
-          message: `${player.name} is cooking`,
-          data: {
-            playerId: player._id,
-            playerName: player.name,
-            roomCode: room.roomCode,
-            gameState: room.gameState,
-            playerCount: room.players.length,
-            players: room.players.map(p => ({
-              id: p._id,
-              name: p.name,
-              isHost: p.isHost,
-              socketId: p.socketId,
-              isConnected: p.isConnected
-            })),
-            currentPrompt: room.currentPrompt,
-            createdAt: room.createdAt
-          }
-        });
-        
-        console.log(`Notified room ${room.roomCode} about ${player.name}'s disconnection`);
-      }
-    } catch (error) {
-      console.error('Error notifying room about disconnection:', error);
-    }
-  }
-
-
-  /**
-   * Handle heartbeat from client
-   * @param {Object} socket - The socket sending heartbeat
-   */
-  async handleHeartbeat(socket) {
-    try {
-      const player = await Player.findOne({ socketId: socket.id });
-      if (player) {
-        player.lastSeen = new Date();
-        await player.save();
-      }
-    } catch (error) {
-      console.error('Error handling heartbeat:', error);
     }
   }
 
@@ -324,7 +163,6 @@ class SocketManager {
    * @param {Object} data - The data to send
    */
   emitToRoom(roomCode, event, data) {
-    console.log(`Emitting ${event} to room ${roomCode}:`, data);
     this.io.to(roomCode).emit(event, data);
   }
 
@@ -372,6 +210,7 @@ class SocketManager {
     return this.io.sockets.sockets.size;
   }
 
+
   /**
    * Get all connected socket IDs
    * @returns {Array} Array of socket IDs
@@ -379,7 +218,6 @@ class SocketManager {
   getConnectedSockets() {
     return Array.from(this.io.sockets.sockets.keys());
   }
-
 
   /**
    * Handle room creation
@@ -420,18 +258,18 @@ class SocketManager {
       // Check if player already exists with this socket ID
       const existingPlayer = await Player.findOne({ socketId: socket.id });
       if (existingPlayer) {
-        // Clean up the existing player (they likely refreshed)
-        console.log(`Player already exists for socket ${socket.id}, cleaning up old player`);
-        await this.cleanupPlayer(existingPlayer);
+        socket.emit('error', {
+          message: 'Player already exists for this connection',
+          code: 'PLAYER_ALREADY_EXISTS'
+        });
+        return;
       }
 
       // Create player
       const player = new Player({
         socketId: socket.id,
         name: playerName.trim(),
-        isHost: true,
-        isConnected: true,
-        lastSeen: new Date()
+        isHost: true
       });
 
       await player.save();
@@ -464,6 +302,7 @@ class SocketManager {
       const room = new GameRoom({
         roomCode,
         players: [player._id],
+        originalHostName: playerName.trim(),
         gameState: 'lobby'
       });
 
@@ -487,8 +326,7 @@ class SocketManager {
             id: p._id,
             name: p.name,
             isHost: p.isHost,
-            socketId: p.socketId,
-            isConnected: p.isConnected
+            socketId: p.socketId
           })),
           createdAt: populatedRoom.createdAt
         }
@@ -552,17 +390,14 @@ class SocketManager {
       const normalizedRoomCode = roomCode.trim().toUpperCase();
 
       // Check if room exists
-      console.log(`Looking for room with code: ${normalizedRoomCode}`);
       const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
       if (!room) {
-        console.log(`Room ${normalizedRoomCode} not found in database`);
         socket.emit('error', {
           message: 'Room not found. Please check the room code.',
           code: 'ROOM_NOT_FOUND'
         });
         return;
       }
-      console.log(`Room ${normalizedRoomCode} found with ${room.players.length} players`);
 
       // Check if room is full (assuming max 8 players)
       if (room.players.length >= 8) {
@@ -573,195 +408,26 @@ class SocketManager {
         return;
       }
 
-      // Check if a player with the same name already exists in the room (and is connected)
-      const existingPlayerWithSameName = room.players.find(p => 
-        p.name.toLowerCase() === playerName.trim().toLowerCase() && p.isConnected
-      );
-      
-      if (existingPlayerWithSameName) {
-        socket.emit('error', {
-          message: 'A player with this name is already in the room. Please choose a different name.',
-          code: 'NAME_ALREADY_EXISTS'
-        });
-        return;
-      }
-
-      // First, check if there's a disconnected player with the same name in this room
-      // This handles the case where someone refreshes and tries to rejoin with the same name
-      const disconnectedPlayerInRoom = room.players.find(p => 
-        p.name.toLowerCase() === playerName.trim().toLowerCase() && !p.isConnected
-      );
-      
-      if (disconnectedPlayerInRoom) {
-        console.log(`Found disconnected player ${playerName} in room ${normalizedRoomCode}, reconnecting them`);
-        
-        // Update the disconnected player's socket ID and connection status
-        disconnectedPlayerInRoom.socketId = socket.id;
-        disconnectedPlayerInRoom.isConnected = true;
-        disconnectedPlayerInRoom.lastSeen = new Date();
-        disconnectedPlayerInRoom.disconnectTime = null;
-        await disconnectedPlayerInRoom.save();
-        
-        // Simple rejoin - ensure they don't become host if there's already a host
-        // Only make them host if there's no current host in the room
-        const currentHost = room.players.find(p => p.isConnected && p.isHost);
-        if (!currentHost) {
-          // No current host, make the rejoining player the host
-          await Player.findByIdAndUpdate(disconnectedPlayerInRoom._id, { isHost: true });
-          console.log(`Made ${disconnectedPlayerInRoom.name} the host (no current host)`);
-        } else {
-          // There's already a host, ensure rejoining player is not host
-          await Player.findByIdAndUpdate(disconnectedPlayerInRoom._id, { isHost: false });
-          console.log(`Kept ${disconnectedPlayerInRoom.name} as regular player (${currentHost.name} is host)`);
-        }
-        
-        // Join socket to room
-        socket.join(normalizedRoomCode);
-        
-        // Get updated room data
-        const updatedRoom = await GameRoom.findById(room._id).populate('players');
-        
-        // Emit success response to reconnecting player
-        socket.emit('roomJoined', {
-          success: true,
-          message: 'Successfully reconnected to room',
-          data: {
-            roomCode: updatedRoom.roomCode,
-            gameState: updatedRoom.gameState,
-            playerCount: updatedRoom.players.length,
-            players: updatedRoom.players.map(p => ({
-              id: p._id,
-              name: p.name,
-              isHost: p.isHost,
-              socketId: p.socketId,
-              isConnected: p.isConnected
-            })),
-            currentPrompt: updatedRoom.currentPrompt,
-            createdAt: updatedRoom.createdAt
-          }
-        });
-
-        // Notify room about reconnection
-        this.emitToRoom(normalizedRoomCode, 'playerReconnected', {
-          success: true,
-          message: `${disconnectedPlayerInRoom.name} is back from cooking`,
-          data: {
-            playerId: disconnectedPlayerInRoom._id,
-            playerName: disconnectedPlayerInRoom.name,
-            roomCode: updatedRoom.roomCode,
-            gameState: updatedRoom.gameState,
-            playerCount: updatedRoom.players.length,
-            players: updatedRoom.players.map(p => ({
-              id: p._id,
-              name: p.name,
-              isHost: p.isHost,
-              socketId: p.socketId,
-              isConnected: p.isConnected
-            })),
-            currentPrompt: updatedRoom.currentPrompt,
-            createdAt: updatedRoom.createdAt
-          }
-        });
-        
-        console.log(`${disconnectedPlayerInRoom.name} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
-        return;
-      }
-
-      // Also check for any disconnected players with the same socket ID (shouldn't happen but safety check)
-      const disconnectedPlayerWithSocket = room.players.find(p => 
-        p.socketId === socket.id && !p.isConnected
-      );
-      
-      if (disconnectedPlayerWithSocket) {
-        console.log(`Found disconnected player with same socket ID ${socket.id} in room ${normalizedRoomCode}, reconnecting them`);
-        
-        // Update the disconnected player's socket ID and connection status
-        disconnectedPlayerWithSocket.socketId = socket.id;
-        disconnectedPlayerWithSocket.isConnected = true;
-        disconnectedPlayerWithSocket.lastSeen = new Date();
-        disconnectedPlayerWithSocket.disconnectTime = null;
-        await disconnectedPlayerWithSocket.save();
-        
-        // Simple rejoin - ensure they don't become host if there's already a host
-        // Only make them host if there's no current host in the room
-        const currentHost2 = room.players.find(p => p.isConnected && p.isHost);
-        if (!currentHost2) {
-          // No current host, make the rejoining player the host
-          await Player.findByIdAndUpdate(disconnectedPlayerWithSocket._id, { isHost: true });
-          console.log(`Made ${disconnectedPlayerWithSocket.name} the host (no current host)`);
-        } else {
-          // There's already a host, ensure rejoining player is not host
-          await Player.findByIdAndUpdate(disconnectedPlayerWithSocket._id, { isHost: false });
-          console.log(`Kept ${disconnectedPlayerWithSocket.name} as regular player (${currentHost2.name} is host)`);
-        }
-        
-        // Join socket to room
-        socket.join(normalizedRoomCode);
-        
-        // Get updated room data
-        const updatedRoom = await GameRoom.findById(room._id).populate('players');
-        
-        // Emit success response to reconnecting player
-        socket.emit('roomJoined', {
-          success: true,
-          message: 'Successfully reconnected to room',
-          data: {
-            roomCode: updatedRoom.roomCode,
-            gameState: updatedRoom.gameState,
-            playerCount: updatedRoom.players.length,
-            players: updatedRoom.players.map(p => ({
-              id: p._id,
-              name: p.name,
-              isHost: p.isHost,
-              socketId: p.socketId,
-              isConnected: p.isConnected
-            })),
-            currentPrompt: updatedRoom.currentPrompt,
-            createdAt: updatedRoom.createdAt
-          }
-        });
-
-        // Notify room about reconnection
-        this.emitToRoom(normalizedRoomCode, 'playerReconnected', {
-          success: true,
-          message: `${disconnectedPlayerWithSocket.name} is back from cooking`,
-          data: {
-            playerId: disconnectedPlayerWithSocket._id,
-            playerName: disconnectedPlayerWithSocket.name,
-            roomCode: updatedRoom.roomCode,
-            gameState: updatedRoom.gameState,
-            playerCount: updatedRoom.players.length,
-            players: updatedRoom.players.map(p => ({
-              id: p._id,
-              name: p.name,
-              isHost: p.isHost,
-              socketId: p.socketId,
-              isConnected: p.isConnected
-            })),
-            currentPrompt: updatedRoom.currentPrompt,
-            createdAt: updatedRoom.createdAt
-          }
-        });
-        
-        console.log(`${disconnectedPlayerWithSocket.name} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
-        return;
-      }
-
       // Check if player already exists with this socket ID
       const existingPlayer = await Player.findOne({ socketId: socket.id });
       if (existingPlayer) {
-        // Check if this player is already in the room they're trying to join
-        const playerInRoom = room.players.find(p => p._id.toString() === existingPlayer._id.toString());
-        if (playerInRoom) {
-          // Player is already in this room, just update their socket ID and mark as connected
-          console.log(`Player ${existingPlayer.name} is already in room ${normalizedRoomCode}, updating socket ID and marking as connected`);
+        socket.emit('error', {
+          message: 'Player already exists for this connection',
+          code: 'PLAYER_ALREADY_EXISTS'
+        });
+        return;
+      }
+
+      // Check if player name is already taken in this room
+      const existingPlayerInRoom = room.players.find(p => p.name.toLowerCase() === playerName.trim().toLowerCase());
+      if (existingPlayerInRoom) {
+        // If the player with the same name is already in the room, this might be a reconnection
+        // Check if the existing player has a different socket ID (meaning they disconnected and are reconnecting)
+        if (existingPlayerInRoom.socketId !== socket.id) {
+          console.log(`Player ${playerName} is reconnecting with new socket ID ${socket.id} (old: ${existingPlayerInRoom.socketId})`);
           
-          // Update socket ID and connection status
-          existingPlayer.socketId = socket.id;
-          existingPlayer.isConnected = true;
-          existingPlayer.lastSeen = new Date();
-          existingPlayer.disconnectTime = null;
-          await existingPlayer.save();
+          // Update the existing player's socket ID instead of creating a new player
+          await Player.findByIdAndUpdate(existingPlayerInRoom._id, { socketId: socket.id });
           
           // Join socket to room
           socket.join(normalizedRoomCode);
@@ -769,6 +435,24 @@ class SocketManager {
           // Get updated room data
           const updatedRoom = await GameRoom.findById(room._id).populate('players');
           
+          // Emit room update to all players in the room
+          this.emitToRoom(normalizedRoomCode, 'roomUpdate', {
+            success: true,
+            message: `${playerName} reconnected to the room`,
+            data: {
+              roomCode: updatedRoom.roomCode,
+              gameState: updatedRoom.gameState,
+              playerCount: updatedRoom.players.length,
+              players: updatedRoom.players.map(p => ({
+                id: p._id,
+                name: p.name,
+                isHost: p.isHost,
+                socketId: p.socketId
+              })),
+              createdAt: updatedRoom.createdAt
+            }
+          });
+
           // Emit success response to reconnecting player
           socket.emit('roomJoined', {
             success: true,
@@ -781,54 +465,29 @@ class SocketManager {
                 id: p._id,
                 name: p.name,
                 isHost: p.isHost,
-                socketId: p.socketId,
-                isConnected: p.isConnected
+                socketId: p.socketId
               })),
-              currentPrompt: updatedRoom.currentPrompt,
               createdAt: updatedRoom.createdAt
             }
           });
 
-          // Notify room about reconnection
-          this.emitToRoom(normalizedRoomCode, 'playerReconnected', {
-            success: true,
-            message: `${existingPlayer.name} is back from cooking`,
-            data: {
-              playerId: existingPlayer._id,
-              playerName: existingPlayer.name,
-              roomCode: updatedRoom.roomCode,
-              gameState: updatedRoom.gameState,
-              playerCount: updatedRoom.players.length,
-              players: updatedRoom.players.map(p => ({
-                id: p._id,
-                name: p.name,
-                isHost: p.isHost,
-                socketId: p.socketId,
-                isConnected: p.isConnected
-              })),
-              currentPrompt: updatedRoom.currentPrompt,
-              createdAt: updatedRoom.createdAt
-            }
-          });
-          
-          console.log(`${existingPlayer.name} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
+          console.log(`${playerName} (${socket.id}) reconnected to room ${normalizedRoomCode}`);
           return;
         } else {
-          // Player exists but not in this room, clean them up
-          console.log(`Player already exists for socket ${socket.id}, cleaning up old player`);
-          await this.cleanupPlayer(existingPlayer);
+          // Same socket ID, this shouldn't happen but handle it gracefully
+          socket.emit('error', {
+            message: 'Player name is already taken in this room',
+            code: 'NAME_ALREADY_TAKEN'
+          });
+          return;
         }
       }
-
-
 
       // Create player
       const player = new Player({
         socketId: socket.id,
         name: playerName.trim(),
-        isHost: false,
-        isConnected: true,
-        lastSeen: new Date()
+        isHost: false
       });
 
       await player.save();
@@ -841,6 +500,39 @@ class SocketManager {
 
       // Get updated room data
       const updatedRoom = await GameRoom.findById(room._id).populate('players');
+      
+      // Check if the joining player is the original host
+      const isOriginalHost = room.originalHostName && playerName.trim().toLowerCase() === room.originalHostName.toLowerCase();
+      
+      if (isOriginalHost) {
+        // If the joining player is the original host, they should get host status back
+        // First, remove host status from current host if any
+        const currentHost = updatedRoom.players.find(p => p.isHost);
+        if (currentHost) {
+          await Player.findByIdAndUpdate(currentHost._id, { isHost: false });
+          console.log(`Host status removed from ${currentHost.name} in room ${normalizedRoomCode}`);
+        }
+        
+        // Assign host status to the original host
+        await Player.findByIdAndUpdate(player._id, { isHost: true });
+        console.log(`Host status restored to original host ${player.name} in room ${normalizedRoomCode}`);
+        
+        // Update the room data to reflect the new host status
+        const refreshedRoom = await GameRoom.findById(room._id).populate('players');
+        updatedRoom.players = refreshedRoom.players;
+      } else {
+        // Check if there's no host in the room and assign host status
+        const hasHost = updatedRoom.players.some(p => p.isHost);
+        if (!hasHost) {
+          // If no host exists, assign host status to the joining player
+          await Player.findByIdAndUpdate(player._id, { isHost: true });
+          console.log(`Host status assigned to ${player.name} in room ${normalizedRoomCode} (no host existed)`);
+          
+          // Update the room data to reflect the new host status
+          const refreshedRoom = await GameRoom.findById(room._id).populate('players');
+          updatedRoom.players = refreshedRoom.players;
+        }
+      }
 
       // Emit room update to all players in the room
       this.emitToRoom(normalizedRoomCode, 'roomUpdate', {
@@ -854,8 +546,7 @@ class SocketManager {
             id: p._id,
             name: p.name,
             isHost: p.isHost,
-            socketId: p.socketId,
-            isConnected: p.isConnected
+            socketId: p.socketId
           })),
           createdAt: updatedRoom.createdAt
         }
@@ -873,8 +564,7 @@ class SocketManager {
             id: p._id,
             name: p.name,
             isHost: p.isHost,
-            socketId: p.socketId,
-            isConnected: p.isConnected
+            socketId: p.socketId
           })),
           createdAt: updatedRoom.createdAt
         }
@@ -941,22 +631,36 @@ class SocketManager {
         return;
       }
 
+      // Check if the leaving player is the host
+      const wasHost = player.isHost;
+      
       // Remove player from room
       await room.removePlayer(player._id);
 
       // Leave socket from room
       socket.leave(normalizedRoomCode);
 
-      // Get updated room data to check remaining players
-      const updatedRoom = await GameRoom.findById(room._id).populate('players');
-      
-      // Check if there are any players left in the room
-      if (updatedRoom.players.length === 0) {
-        // No players left, delete the room
-        await GameRoom.findByIdAndDelete(room._id);
-        console.log(`Room ${normalizedRoomCode} deleted as it became empty`);
+      // If room becomes empty, keep it alive for potential rejoin
+      if (room.players.length === 1) { // Only the leaving player remains
+        console.log(`Room ${normalizedRoomCode} is now empty - keeping it alive for potential rejoin`);
+        // Don't delete empty rooms immediately - keep them for potential rejoin
+        // Rooms will be cleaned up by the periodic cleanup task
       } else {
-        // There are still connected players, notify them
+        // Get updated room data
+        const updatedRoom = await GameRoom.findById(room._id).populate('players');
+        
+        // If the leaving player was the host, assign host status to another player
+        if (wasHost && updatedRoom.players.length > 0) {
+          const newHost = updatedRoom.players[0]; // Assign to first remaining player
+          await Player.findByIdAndUpdate(newHost._id, { isHost: true });
+          console.log(`Host status transferred from ${player.name} to ${newHost.name} in room ${normalizedRoomCode}`);
+          
+          // Update the room data to reflect the new host status
+          const refreshedRoom = await GameRoom.findById(room._id).populate('players');
+          updatedRoom.players = refreshedRoom.players;
+        }
+
+        // Emit room update to remaining players
         this.emitToRoom(normalizedRoomCode, 'roomUpdate', {
           success: true,
           message: `${player.name} left the room`,
@@ -968,8 +672,7 @@ class SocketManager {
               id: p._id,
               name: p.name,
               isHost: p.isHost,
-              socketId: p.socketId,
-              isConnected: p.isConnected
+              socketId: p.socketId
             })),
             createdAt: updatedRoom.createdAt
           }
@@ -1086,14 +789,9 @@ class SocketManager {
         return;
       }
 
-      // Generate AI prompt
-      const prompt = await this.aiPromptGenerator.generateContextualPrompt({
-        playerCount: room.players.length,
-        gameState: room.gameState
-      });
-
-      // Start the game
-      await room.startGame(prompt);
+      // Set game state to hostSetup instead of immediately starting
+      room.gameState = 'hostSetup';
+      await room.save();
 
       // Get updated room data
       const updatedRoom = await GameRoom.findById(room._id).populate('players');
@@ -1101,7 +799,7 @@ class SocketManager {
       // Emit game started event to all players in the room
       this.emitToRoom(normalizedRoomCode, 'gameStarted', {
         success: true,
-        message: 'Game started successfully!',
+        message: 'Game setup started!',
         data: {
           roomCode: updatedRoom.roomCode,
           gameState: updatedRoom.gameState,
@@ -1119,7 +817,6 @@ class SocketManager {
       });
 
       console.log(`Game started in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
-      console.log(`Prompt: "${prompt}"`);
 
     } catch (error) {
       console.error('Error starting game:', error);
@@ -1131,27 +828,22 @@ class SocketManager {
   }
 
   /**
-   * Handle image submission
-   * @param {Object} socket - The socket submitting the image
-   * @param {Object} data - Data containing room code and image data
+   * Handle game continuation after host setup
+   * @param {Object} socket - The socket continuing the game
+   * @param {Object} data - Data containing room code, category, and difficulty
    */
-  async handleSubmitImage(socket, data) {
+  async handleContinueGame(socket, data) {
     try {
-      const { roomCode, imageData, fileName, fileSize, mimeType } = data;
+      const { roomCode, category, difficulty, timerLength } = data;
+      
+      console.log('Server: handleContinueGame received data:', data);
+      console.log('Server: timerLength received:', timerLength);
 
       // Validate input
       if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
         socket.emit('error', {
           message: 'Room code must be exactly 4 characters',
           code: 'INVALID_ROOM_CODE'
-        });
-        return;
-      }
-
-      if (!imageData || typeof imageData !== 'string') {
-        socket.emit('error', {
-          message: 'Image data is required',
-          code: 'INVALID_IMAGE_DATA'
         });
         return;
       }
@@ -1188,136 +880,185 @@ class SocketManager {
         return;
       }
 
-      // Check if game is in submitting state
-      if (room.gameState !== 'submitting') {
+      // Check if player is the host
+      if (!player.isHost) {
         socket.emit('error', {
-          message: 'Game is not in submission phase',
+          message: 'Only the host can continue the game',
+          code: 'NOT_HOST'
+        });
+        return;
+      }
+
+      // Check if game is in hostSetup state
+      if (room.gameState !== 'hostSetup') {
+        socket.emit('error', {
+          message: 'Game is not in setup state',
           code: 'INVALID_GAME_STATE'
         });
         return;
       }
 
-      // Check if cooking time has expired
-      if (room.isCookingTimeExpired()) {
-        socket.emit('error', {
-          message: 'Cooking time has expired',
-          code: 'COOKING_TIME_EXPIRED'
-        });
-        return;
-      }
-
-      // Check if player has already submitted
-      const existingSubmission = await Submission.findOne({ 
-        playerId: player._id, 
-        roomId: room._id 
+      // Generate AI prompt based on category and difficulty
+      const prompt = await this.aiPromptGenerator.generateContextualPrompt({
+        playerCount: room.players.length,
+        gameState: 'submitting',
+        category: category,
+        difficulty: difficulty
       });
-      
-      if (existingSubmission) {
-        socket.emit('error', {
-          message: 'You have already submitted an image for this round',
-          code: 'ALREADY_SUBMITTED'
-        });
-        return;
-      }
 
-      // Create mock file object for validation
-      const mockFile = {
-        originalname: fileName || 'submission.jpg',
-        mimetype: mimeType || 'image/jpeg',
-        size: fileSize || imageData.length,
-        buffer: Buffer.from(imageData, 'base64')
+      // Select a random location based on category
+      console.log('Server: About to select location for category:', category);
+      const selectedLocation = this.aiPromptGenerator.selectRandomLocation(category);
+      console.log('Server: Selected location result:', selectedLocation);
+      console.log('Server: Type of selectedLocation:', typeof selectedLocation);
+
+      // Start the actual game
+      await room.startGame(prompt);
+
+      // Get updated room data
+      const updatedRoom = await GameRoom.findById(room._id).populate('players');
+
+      // Emit game continued event to all players in the room
+      const responseData = {
+        success: true,
+        message: 'Game started successfully!',
+        data: {
+          roomCode: updatedRoom.roomCode,
+          gameState: updatedRoom.gameState,
+          currentPrompt: updatedRoom.currentPrompt,
+          gameStartTime: updatedRoom.gameStartTime,
+          cookingTimeLimit: updatedRoom.cookingTimeLimit,
+          timerLength: timerLength,
+          category: category,
+          selectedLocation: selectedLocation,
+          playerCount: updatedRoom.players.length,
+          players: updatedRoom.players.map(p => ({
+            id: p._id,
+            name: p.name,
+            isHost: p.isHost,
+            socketId: p.socketId
+          }))
+        }
       };
-
-      // Upload image using the image uploader service
-      const uploadResult = await this.imageUploader.uploadImage(mockFile, player._id);
       
-      if (!uploadResult.success) {
-        socket.emit('error', {
-          message: `Image upload failed: ${uploadResult.error}`,
-          code: 'UPLOAD_FAILED'
-        });
-        return;
-      }
+      console.log('Sending gameContinued data:', JSON.stringify(responseData, null, 2));
+      this.emitToRoom(normalizedRoomCode, 'gameContinued', responseData);
 
-      // Create submission record
-      const submission = new Submission({
-        playerId: player._id,
-        roomId: room._id,
-        imageUrl: uploadResult.imageUrl
-      });
-
-      await submission.save();
-
-      // Get all submissions for this room to check if all players have submitted
-      const allSubmissions = await Submission.find({ roomId: room._id });
-      const allPlayersSubmitted = allSubmissions.length === room.players.length;
-
-      // Emit submission success to the submitting player
-      socket.emit('submissionSuccess', {
-        success: true,
-        message: 'Image submitted successfully!',
-        data: {
-          submissionId: submission._id,
-          imageUrl: uploadResult.imageUrl,
-          submittedAt: submission.createdAt,
-          allPlayersSubmitted: allPlayersSubmitted,
-          submissionsCount: allSubmissions.length,
-          totalPlayers: room.players.length
-        }
-      });
-
-      // Emit submission update to all players in the room
-      this.emitToRoom(normalizedRoomCode, 'submissionUpdate', {
-        success: true,
-        message: `${player.name} has submitted their dish!`,
-        data: {
-          playerId: player._id,
-          playerName: player.name,
-          submissionsCount: allSubmissions.length,
-          totalPlayers: room.players.length,
-          allPlayersSubmitted: allPlayersSubmitted,
-          remainingTime: room.getRemainingCookingTime()
-        }
-      });
-
-      // If all players have submitted, automatically transition to voting phase
-      if (allPlayersSubmitted) {
-        await room.startVoting();
-        
-        // Get updated room data
-        const updatedRoom = await GameRoom.findById(room._id).populate('players');
-        
-        // Emit voting started event to all players
-        this.emitToRoom(normalizedRoomCode, 'votingStarted', {
-          success: true,
-          message: 'All players have submitted! Voting phase has begun.',
-          data: {
-            roomCode: updatedRoom.roomCode,
-            gameState: updatedRoom.gameState,
-            votingTimeLimit: updatedRoom.votingTimeLimit,
-            playerCount: updatedRoom.players.length,
-            players: updatedRoom.players.map(p => ({
-              id: p._id,
-              name: p.name,
-              isHost: p.isHost,
-              socketId: p.socketId
-            }))
-          }
-        });
-
-        console.log(`All players submitted in room ${normalizedRoomCode}, voting phase started`);
-      }
-
-      console.log(`${player.name} (${socket.id}) submitted image in room ${normalizedRoomCode}`);
+      console.log(`Game continued in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
+      console.log(`Category: ${category}, Difficulty: ${difficulty}, TimerLength: ${timerLength}`);
+      console.log(`Prompt: "${prompt}"`);
+      console.log(`Selected Location: "${selectedLocation}"`);
 
     } catch (error) {
-      console.error('Error submitting image:', error);
+      console.error('Error continuing game:', error);
       socket.emit('error', {
-        message: 'Internal server error while submitting image',
+        message: 'Internal server error while continuing game',
         code: 'INTERNAL_ERROR'
       });
     }
   }
+
+  /**
+   * Handle next to game screen request (host-only)
+   * @param {Object} socket - The socket requesting to go to game screen
+   * @param {Object} data - Data containing room code
+   */
+  async handleNextToGame(socket, data) {
+    try {
+      const { roomCode } = data;
+
+      // Validate input
+      if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
+        socket.emit('error', {
+          message: 'Room code must be exactly 4 characters',
+          code: 'INVALID_ROOM_CODE'
+        });
+        return;
+      }
+
+      const normalizedRoomCode = roomCode.trim().toUpperCase();
+
+      // Find player
+      const player = await Player.findOne({ socketId: socket.id });
+      if (!player) {
+        socket.emit('error', {
+          message: 'Player not found',
+          code: 'PLAYER_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Find room
+      const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
+      if (!room) {
+        socket.emit('error', {
+          message: 'Room not found',
+          code: 'ROOM_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Check if player is in this room
+      const playerInRoom = room.players.find(p => p._id.toString() === player._id.toString());
+      if (!playerInRoom) {
+        socket.emit('error', {
+          message: 'Player is not in this room',
+          code: 'PLAYER_NOT_IN_ROOM'
+        });
+        return;
+      }
+
+      // Check if player is the host
+      if (!player.isHost) {
+        socket.emit('error', {
+          message: 'Only the host can proceed to game screen',
+          code: 'NOT_HOST'
+        });
+        return;
+      }
+
+      // Check if game is in submitting state
+      if (room.gameState !== 'submitting') {
+        socket.emit('error', {
+          message: 'Game must be in submitting state to proceed to game screen',
+          code: 'INVALID_GAME_STATE'
+        });
+        return;
+      }
+
+      // Update room state to gameScreen
+      room.gameState = 'gameScreen';
+      await room.save();
+
+      // Emit next to game event to all players in the room
+      this.emitToRoom(normalizedRoomCode, 'nextToGame', {
+        success: true,
+        message: 'Proceeding to game screen!',
+        data: {
+          roomCode: room.roomCode,
+          gameState: 'gameScreen',
+          currentPrompt: room.currentPrompt,
+          playerCount: room.players.length,
+          players: room.players.map(p => ({
+            id: p._id,
+            name: p.name,
+            isHost: p.isHost,
+            socketId: p.socketId
+          }))
+        }
+      });
+
+      console.log(`Next to game screen triggered in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
+
+    } catch (error) {
+      console.error('Error proceeding to game screen:', error);
+      socket.emit('error', {
+        message: 'Internal server error while proceeding to game screen',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  }
+
 
   /**
    * Handle voting start request (host-only)
@@ -1378,21 +1119,11 @@ class SocketManager {
         return;
       }
 
-      // Check if game is in submitting state
-      if (room.gameState !== 'submitting') {
+      // Check if game is in gameScreen state (cooking phase)
+      if (room.gameState !== 'gameScreen') {
         socket.emit('error', {
-          message: 'Game must be in submission phase to start voting',
+          message: 'Game must be in cooking phase to start voting',
           code: 'INVALID_GAME_STATE'
-        });
-        return;
-      }
-
-      // Check if there are submissions to vote on
-      const submissions = await Submission.find({ roomId: room._id });
-      if (submissions.length === 0) {
-        socket.emit('error', {
-          message: 'No submissions found to vote on',
-          code: 'NO_SUBMISSIONS'
         });
         return;
       }
@@ -1413,7 +1144,6 @@ class SocketManager {
           votingTimeLimit: updatedRoom.votingTimeLimit,
           votingStartTime: updatedRoom.votingStartTime,
           playerCount: updatedRoom.players.length,
-          submissionsCount: submissions.length,
           players: updatedRoom.players.map(p => ({
             id: p._id,
             name: p.name,
@@ -1437,11 +1167,11 @@ class SocketManager {
   /**
    * Handle vote casting
    * @param {Object} socket - The socket casting the vote
-   * @param {Object} data - Data containing room code and submission ID
+   * @param {Object} data - Data containing room code and player ID
    */
   async handleCastVote(socket, data) {
     try {
-      const { roomCode, submissionId } = data;
+      const { roomCode, playerId, rating } = data;
 
       // Validate input
       if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
@@ -1452,19 +1182,27 @@ class SocketManager {
         return;
       }
 
-      if (!submissionId || typeof submissionId !== 'string') {
+      if (!playerId || typeof playerId !== 'string') {
         socket.emit('error', {
-          message: 'Submission ID is required',
-          code: 'INVALID_SUBMISSION_ID'
+          message: 'Player ID is required',
+          code: 'INVALID_PLAYER_ID'
+        });
+        return;
+      }
+
+      if (!rating || typeof rating !== 'number' || rating < 1 || rating > 5) {
+        socket.emit('error', {
+          message: 'Rating must be a number between 1 and 5',
+          code: 'INVALID_RATING'
         });
         return;
       }
 
       const normalizedRoomCode = roomCode.trim().toUpperCase();
 
-      // Find player
-      const player = await Player.findOne({ socketId: socket.id });
-      if (!player) {
+      // Find voter player
+      const voter = await Player.findOne({ socketId: socket.id });
+      if (!voter) {
         socket.emit('error', {
           message: 'Player not found',
           code: 'PLAYER_NOT_FOUND'
@@ -1482,9 +1220,9 @@ class SocketManager {
         return;
       }
 
-      // Check if player is in this room
-      const playerInRoom = room.players.find(p => p._id.toString() === player._id.toString());
-      if (!playerInRoom) {
+      // Check if voter is in this room
+      const voterInRoom = room.players.find(p => p._id.toString() === voter._id.toString());
+      if (!voterInRoom) {
         socket.emit('error', {
           message: 'Player is not in this room',
           code: 'PLAYER_NOT_IN_ROOM'
@@ -1510,141 +1248,140 @@ class SocketManager {
         return;
       }
 
-      // Find submission
-      const submission = await Submission.findById(submissionId).populate('playerId', 'name');
-      if (!submission) {
+      // Find the player being voted for
+      const targetPlayer = await Player.findById(playerId);
+      if (!targetPlayer) {
         socket.emit('error', {
-          message: 'Submission not found',
-          code: 'SUBMISSION_NOT_FOUND'
+          message: 'Player not found',
+          code: 'TARGET_PLAYER_NOT_FOUND'
         });
         return;
       }
 
-      // Check if submission belongs to this room
-      if (submission.roomId.toString() !== room._id.toString()) {
+      // Check if target player is in this room
+      const targetPlayerInRoom = room.players.find(p => p._id.toString() === targetPlayer._id.toString());
+      if (!targetPlayerInRoom) {
         socket.emit('error', {
-          message: 'Submission does not belong to this room',
-          code: 'SUBMISSION_NOT_IN_ROOM'
+          message: 'Target player is not in this room',
+          code: 'TARGET_PLAYER_NOT_IN_ROOM'
         });
         return;
       }
 
-      try {
-        // Add vote to submission
-        await submission.addVote(player._id);
-
-        // Get updated submission with vote count
-        const updatedSubmission = await Submission.findById(submissionId).populate('playerId', 'name');
-
-        // Get all submissions for this room to check if all players have voted
-        const allSubmissions = await Submission.find({ roomId: room._id }).populate('playerId', 'name');
-        const totalVotes = allSubmissions.reduce((sum, sub) => sum + sub.votes.length, 0);
-        const allPlayersVoted = totalVotes === room.players.length;
-
-        // Emit vote success to the voting player
-        socket.emit('voteSuccess', {
-          success: true,
-          message: `Vote cast for ${updatedSubmission.playerId.name}'s submission!`,
-          data: {
-            submissionId: updatedSubmission._id,
-            submissionOwner: updatedSubmission.playerId.name,
-            voteCount: updatedSubmission.voteCount,
-            totalVotes: totalVotes,
-            allPlayersVoted: allPlayersVoted,
-            votedAt: new Date().toISOString()
-          }
+      // Check if voter is trying to vote for themselves
+      if (voter._id.toString() === targetPlayer._id.toString()) {
+        socket.emit('error', {
+          message: 'You cannot vote for yourself',
+          code: 'CANNOT_VOTE_SELF'
         });
-
-        // Emit vote update to all players in the room
-        this.emitToRoom(normalizedRoomCode, 'voteUpdate', {
-          success: true,
-          message: `${player.name} voted for ${updatedSubmission.playerId.name}'s submission`,
-          data: {
-            voterId: player._id,
-            voterName: player.name,
-            submissionId: updatedSubmission._id,
-            submissionOwner: updatedSubmission.playerId.name,
-            voteCount: updatedSubmission.voteCount,
-            totalVotes: totalVotes,
-            allPlayersVoted: allPlayersVoted,
-            remainingTime: room.getRemainingVotingTime()
-          }
-        });
-
-        // If all players have voted, automatically transition to results phase
-        if (allPlayersVoted) {
-          await room.endVoting();
-          
-          // Get updated room data
-          const updatedRoom = await GameRoom.findById(room._id).populate('players');
-          
-          // Get all submissions with vote counts for results
-          const submissionsWithVotes = await Submission.find({ roomId: room._id })
-            .populate('playerId', 'name')
-            .sort({ voteCount: -1 });
-
-          // Find winner (submission with most votes, excluding submissions with null playerId)
-          const validSubmissions = submissionsWithVotes.filter(sub => sub.playerId);
-          const winner = validSubmissions.length > 0 ? validSubmissions[0] : null;
-
-          // Emit results event to all players
-          this.emitToRoom(normalizedRoomCode, 'resultsReady', {
-            success: true,
-            message: 'All players have voted! Results are ready.',
-            data: {
-              roomCode: updatedRoom.roomCode,
-              gameState: updatedRoom.gameState,
-              winner: winner ? {
-                submissionId: winner._id,
-                playerId: winner.playerId._id,
-                playerName: winner.playerId.name,
-                voteCount: winner.voteCount,
-                imageUrl: winner.imageUrl
-              } : null,
-              submissions: submissionsWithVotes
-                .filter(sub => sub.playerId) // Filter out submissions with null playerId
-                .map(sub => ({
-                  submissionId: sub._id,
-                  playerId: sub.playerId._id,
-                  playerName: sub.playerId.name,
-                  voteCount: sub.voteCount,
-                  imageUrl: sub.imageUrl
-                })),
-              playerCount: updatedRoom.players.length,
-              players: updatedRoom.players.map(p => ({
-                id: p._id,
-                name: p.name,
-                isHost: p.isHost,
-                socketId: p.socketId
-              }))
-            }
-          });
-
-          console.log(`All players voted in room ${normalizedRoomCode}, results phase started`);
-        }
-
-        console.log(`${player.name} (${socket.id}) voted for submission ${submissionId} in room ${normalizedRoomCode}`);
-
-      } catch (voteError) {
-        // Handle vote validation errors
-        if (voteError.message === 'Player has already voted for this submission') {
-          socket.emit('error', {
-            message: 'You have already voted for this submission',
-            code: 'ALREADY_VOTED'
-          });
-          return;
-        }
-
-        if (voteError.message === 'Players cannot vote for their own submission') {
-          socket.emit('error', {
-            message: 'You cannot vote for your own submission',
-            code: 'SELF_VOTE_NOT_ALLOWED'
-          });
-          return;
-        }
-
-        throw voteError;
+        return;
       }
+
+      // Check if voter has already voted for this player
+      const existingVote = room.votes?.find(vote => 
+        vote.voterId.toString() === voter._id.toString() && 
+        vote.targetPlayerId.toString() === targetPlayer._id.toString()
+      );
+
+      if (existingVote) {
+        socket.emit('error', {
+          message: 'You have already voted for this player',
+          code: 'ALREADY_VOTED'
+        });
+        return;
+      }
+
+      // Add vote to room
+      if (!room.votes) {
+        room.votes = [];
+      }
+      
+      room.votes.push({
+        voterId: voter._id,
+        targetPlayerId: targetPlayer._id,
+        rating: rating,
+        votedAt: new Date()
+      });
+
+      await room.save();
+
+      // Check if all players have voted
+      const totalVotes = room.votes.length;
+      const allPlayersVoted = totalVotes >= (room.players.length * (room.players.length - 1));
+
+      // Emit vote success to the voting player
+      socket.emit('voteSuccess', {
+        success: true,
+        message: `Vote cast for ${targetPlayer.name}!`,
+        data: {
+          targetPlayerId: targetPlayer._id,
+          targetPlayerName: targetPlayer.name,
+          rating: rating,
+          totalVotes: totalVotes,
+          allPlayersVoted: allPlayersVoted,
+          votedAt: new Date().toISOString()
+        }
+      });
+
+      // Emit vote update to all players in the room
+      this.emitToRoom(normalizedRoomCode, 'voteUpdate', {
+        success: true,
+        message: `${voter.name} voted ${rating} stars for ${targetPlayer.name}`,
+        data: {
+          voterId: voter._id,
+          voterName: voter.name,
+          targetPlayerId: targetPlayer._id,
+          targetPlayerName: targetPlayer.name,
+          rating: rating,
+          totalVotes: totalVotes,
+          allPlayersVoted: allPlayersVoted,
+          remainingTime: room.getRemainingVotingTime()
+        }
+      });
+
+      // If all players have voted, automatically transition to results phase
+      if (allPlayersVoted) {
+        await room.showResults();
+        
+        // Calculate results
+        const playerRatings = {};
+        room.players.forEach(player => {
+          const votesForPlayer = room.votes.filter(vote => 
+            vote.targetPlayerId.toString() === player._id.toString()
+          );
+          const totalRating = votesForPlayer.reduce((sum, vote) => sum + vote.rating, 0);
+          const averageRating = votesForPlayer.length > 0 ? totalRating / votesForPlayer.length : 0;
+          
+          playerRatings[player._id.toString()] = {
+            playerId: player._id,
+            playerName: player.name,
+            totalRating: totalRating,
+            averageRating: averageRating,
+            voteCount: votesForPlayer.length
+          };
+        });
+
+        // Find winner (player with highest average rating)
+        const sortedPlayers = Object.values(playerRatings).sort((a, b) => b.averageRating - a.averageRating);
+        const winner = sortedPlayers.length > 0 ? sortedPlayers[0] : null;
+
+        // Emit results ready event to all players
+        this.emitToRoom(normalizedRoomCode, 'resultsReady', {
+          success: true,
+          message: 'All votes are in! Results are ready.',
+          data: {
+            roomCode: room.roomCode,
+            gameState: room.gameState,
+            results: Object.values(playerRatings),
+            winner: winner,
+            totalVotes: totalVotes
+          }
+        });
+
+        console.log(`All players voted in room ${normalizedRoomCode}, results phase started`);
+      }
+
+      console.log(`${voter.name} (${socket.id}) voted ${rating} stars for ${targetPlayer.name} in room ${normalizedRoomCode}`);
 
     } catch (error) {
       console.error('Error casting vote:', error);
@@ -1656,44 +1393,54 @@ class SocketManager {
   }
 
   /**
-   * Start the room cleanup service to remove empty rooms after a delay
+   * Start periodic cleanup of old empty rooms
+   * Runs every 10 minutes to clean up rooms that have been empty for more than 30 minutes
    */
-  startRoomCleanupService() {
-    // Run cleanup every 30 minutes to remove empty rooms that are older than 1 hour
+  startPeriodicCleanup() {
+    // Run cleanup every 10 minutes
     setInterval(async () => {
       try {
-        await this.cleanupEmptyRooms();
+        await this.cleanupOldEmptyRooms();
       } catch (error) {
-        console.error('Error in room cleanup service:', error);
+        console.error('Error during periodic cleanup:', error);
       }
-    }, 30 * 60 * 1000); // 30 minutes
+    }, 10 * 60 * 1000); // 10 minutes
 
-    console.log('Room cleanup service started - will run every 30 minutes for empty rooms');
+    // Also run cleanup immediately on startup
+    setTimeout(async () => {
+      try {
+        await this.cleanupOldEmptyRooms();
+      } catch (error) {
+        console.error('Error during initial cleanup:', error);
+      }
+    }, 5000); // Wait 5 seconds after startup
   }
 
   /**
-   * Clean up empty rooms that have been empty for more than 1 hour
+   * Clean up rooms that have been empty for more than 30 minutes
    */
-  async cleanupEmptyRooms() {
+  async cleanupOldEmptyRooms() {
     try {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
       
-      // Find empty rooms that are older than 1 hour
-      const emptyRooms = await GameRoom.find({
-        $expr: { $eq: [{ $size: '$players' }, 0] },
-        createdAt: { $lt: oneHourAgo }
+      // Find empty rooms that were last updated more than 30 minutes ago
+      const oldEmptyRooms = await GameRoom.find({
+        players: { $size: 0 },
+        updatedAt: { $lt: thirtyMinutesAgo }
       });
 
-      if (emptyRooms.length > 0) {
-        console.log(`Cleaning up ${emptyRooms.length} empty rooms`);
+      if (oldEmptyRooms.length > 0) {
+        console.log(`Cleaning up ${oldEmptyRooms.length} old empty rooms`);
         
-        for (const room of emptyRooms) {
+        for (const room of oldEmptyRooms) {
+          console.log(`Deleting old empty room: ${room.roomCode} (last updated: ${room.updatedAt})`);
           await GameRoom.findByIdAndDelete(room._id);
-          console.log(`Deleted empty room ${room.roomCode}`);
         }
+        
+        console.log(`Successfully cleaned up ${oldEmptyRooms.length} old empty rooms`);
       }
     } catch (error) {
-      console.error('Error cleaning up empty rooms:', error);
+      console.error('Error cleaning up old empty rooms:', error);
     }
   }
 }

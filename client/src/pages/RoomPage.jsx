@@ -1,4 +1,312 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { Box, Button, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material'
+import { styled } from '@mui/material/styles'
+import GameScreen from '../components/GameScreen'
+import VotingScreen from '../components/VotingScreen'
+
+// Styled components
+const RoomContainer = styled(Box)(({ theme }) => ({
+  minHeight: '100vh',
+  backgroundColor: '#DBF0C5', // Light green background
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(4),
+  position: 'relative'
+}))
+
+const ContentContainer = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  width: '100%',
+  maxWidth: 400,
+  gap: theme.spacing(4)
+}))
+
+const GameCodeSection = styled(Box)(({ theme }) => ({
+  textAlign: 'center',
+  width: '100%'
+}))
+
+const GameCodeLabel = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1rem',
+  fontWeight: 'normal',
+  color: 'black',
+  marginBottom: theme.spacing(1),
+  textTransform: 'lowercase'
+}))
+
+const GameCodeValue = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1.5rem',
+  fontWeight: 'normal',
+  color: '#666',
+  borderBottom: '1px solid #D3D3D3',
+  paddingBottom: theme.spacing(0.5),
+  display: 'inline-block',
+  minWidth: '100px',
+  textTransform: 'lowercase'
+}))
+
+const PlayersLabel = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1rem',
+  fontWeight: 'normal',
+  color: 'black',
+  textAlign: 'center',
+  width: '100%',
+  textTransform: 'lowercase'
+}))
+
+const PlayerSlot = styled(Box)(({ theme }) => ({
+  backgroundColor: '#F8F0F8', // Light pink/purple background
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(2),
+  width: '100%',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+  border: '1px solid rgba(0,0,0,0.05)'
+}))
+
+const PlayerText = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1rem',
+  color: 'black',
+  fontWeight: 'normal',
+  textTransform: 'lowercase'
+}))
+
+const LeaveButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  position: 'absolute',
+  bottom: theme.spacing(3),
+  left: theme.spacing(3),
+  backgroundColor: '#9C27B0', // Purple background
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(1, 2),
+  fontSize: '0.875rem',
+  textTransform: 'lowercase',
+  '&:hover': {
+    backgroundColor: '#7B1FA2'
+  }
+}))
+
+const StartGameButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  backgroundColor: '#F44336', // Red background
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(2, 4),
+  fontSize: '1rem',
+  fontWeight: 'bold',
+  textTransform: 'lowercase',
+  width: '100%',
+  '&:hover': {
+    backgroundColor: '#D32F2F'
+  },
+  '&:disabled': {
+    backgroundColor: '#BDBDBD',
+    color: '#757575'
+  }
+}))
+
+const HostSetupContainer = styled(Box)(({ theme }) => ({
+  minHeight: '100vh',
+  backgroundColor: '#DBF0C5', // Light green background
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(4),
+  position: 'relative'
+}))
+
+const SetupTitle = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '2rem',
+  fontWeight: 'bold',
+  color: '#424242', // Dark gray text
+  textAlign: 'center',
+  textTransform: 'lowercase'
+}))
+
+const HostLeaveButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  position: 'absolute',
+  bottom: theme.spacing(3),
+  left: theme.spacing(3),
+  backgroundColor: '#9C27B0', // Purple background
+  color: '#424242', // Dark gray text
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(1, 2),
+  fontSize: '0.875rem',
+  textTransform: 'lowercase',
+  '&:hover': {
+    backgroundColor: '#7B1FA2'
+  }
+}))
+
+const DropdownContainer = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: theme.spacing(3),
+  width: '100%',
+  maxWidth: 300
+}))
+
+const DropdownLabel = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1rem',
+  fontWeight: 'normal',
+  color: 'black',
+  textAlign: 'left',
+  width: '100%',
+  textTransform: 'lowercase'
+}))
+
+const StyledSelect = styled(Select)(({ theme }) => ({
+  width: '100%',
+  backgroundColor: '#F8F0F8', // Light pink/purple background
+  borderRadius: theme.spacing(1),
+  '& .MuiOutlinedInput-notchedOutline': {
+    border: '1px solid rgba(0,0,0,0.1)'
+  },
+  '&:hover .MuiOutlinedInput-notchedOutline': {
+    border: '1px solid rgba(0,0,0,0.2)'
+  },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    border: '1px solid rgba(0,0,0,0.3)'
+  },
+  '& .MuiSelect-select': {
+    padding: theme.spacing(1.5, 2),
+    fontSize: '1rem',
+    color: 'black'
+  }
+}))
+
+const WaitingContainer = styled(Box)(({ theme }) => ({
+  minHeight: '100vh',
+  backgroundColor: '#DBF0C5', // Light mint green background
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(4),
+  position: 'relative'
+}))
+
+const WaitingText = styled(Typography)(({ theme }) => ({
+  fontSize: '3rem',
+  fontWeight: 'bold',
+  color: 'black',
+  textAlign: 'center',
+  fontFamily: '"Grandstander", cursive',
+  textTransform: 'lowercase'
+}))
+
+const WaitingLeaveButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  position: 'absolute',
+  bottom: theme.spacing(3),
+  left: theme.spacing(3),
+  backgroundColor: '#9C27B0', // Light purple background
+  color: 'black', // Black text
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(1, 2),
+  fontSize: '0.875rem',
+  textTransform: 'lowercase',
+  '&:hover': {
+    backgroundColor: '#7B1FA2'
+  }
+}))
+
+const ContinueButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  backgroundColor: '#F44336', // Red background
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(2, 4),
+  fontSize: '1rem',
+  fontWeight: 'bold',
+  textTransform: 'lowercase',
+  width: '100%',
+  marginTop: theme.spacing(2),
+  '&:hover': {
+    backgroundColor: '#D32F2F'
+  }
+}))
+
+const GlobeSpinningContainer = styled(Box)(({ theme }) => ({
+  minHeight: '100vh',
+  backgroundColor: '#DBF0C5', // Light mint green background
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(4),
+  position: 'relative'
+}))
+
+const GlobeSpinningText = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '2rem',
+  fontWeight: 'normal',
+  color: 'black',
+  textAlign: 'center',
+  marginBottom: theme.spacing(8),
+  textTransform: 'lowercase'
+}))
+
+const ChallengeText = styled(Typography)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  fontSize: '1.5rem',
+  fontWeight: 'normal',
+  color: 'black',
+  textAlign: 'center',
+  position: 'absolute',
+  bottom: theme.spacing(8),
+  textTransform: 'lowercase'
+}))
+
+const GlobeLeaveButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  position: 'absolute',
+  bottom: theme.spacing(3),
+  left: theme.spacing(3),
+  backgroundColor: '#9C27B0', // Light purple background
+  color: 'white', // White text
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(1, 2),
+  fontSize: '0.875rem',
+  textTransform: 'lowercase',
+  '&:hover': {
+    backgroundColor: '#7B1FA2'
+  }
+}))
+
+const GlobeNextButton = styled(Button)(({ theme }) => ({
+  fontFamily: '"Grandstander", cursive',
+  backgroundColor: '#F44336', // Red background
+  color: 'white',
+  borderRadius: theme.spacing(1),
+  padding: theme.spacing(2, 4),
+  fontSize: '1rem',
+  fontWeight: 'bold',
+  textTransform: 'lowercase',
+  width: '200px',
+  marginTop: theme.spacing(4),
+  '&:hover': {
+    backgroundColor: '#D32F2F'
+  },
+  '&:disabled': {
+    backgroundColor: '#BDBDBD',
+    color: '#757575'
+  }
+}))
 
 const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   const [currentRoom, setCurrentRoom] = useState(roomData)
@@ -15,11 +323,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   const [gameStartTime, setGameStartTime] = useState(null)
   const [votingStartTime, setVotingStartTime] = useState(null)
   
-  // Submission states
-  const [submissions, setSubmissions] = useState([])
-  const [hasSubmitted, setHasSubmitted] = useState(false)
-  const [submissionProgress, setSubmissionProgress] = useState({})
-  
   // Voting states
   const [votes, setVotes] = useState({})
   const [hasVoted, setHasVoted] = useState(false)
@@ -28,6 +331,33 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   // Results states
   const [results, setResults] = useState(null)
   const [winner, setWinner] = useState(null)
+
+  // Game setup states
+  const [category, setCategory] = useState('Hemisphere')
+  const [difficulty, setDifficulty] = useState('Easy')
+  const [timerLength, setTimerLength] = useState('30 mins')
+  const [selectedLocation, setSelectedLocation] = useState(null)
+
+  // Fallback location lists for client-side selection if server fails
+  const FALLBACK_LOCATIONS = {
+    Hemisphere: ['Northern Hemisphere', 'Southern Hemisphere', 'Eastern Hemisphere', 'Western Hemisphere'],
+    Continent: ['Africa', 'Antarctica', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'],
+    Region: ['Mediterranean', 'Scandinavia', 'Caribbean', 'Middle East', 'Southeast Asia', 'Central America', 'Balkans', 'Himalayas', 'Amazon Basin', 'Sahara Desert', 'Arctic Circle', 'Pacific Islands', 'Great Plains', 'Andes Mountains', 'Siberia'],
+    Country: ['Italy', 'Japan', 'Mexico', 'India', 'France', 'Thailand', 'Spain', 'Brazil', 'Greece', 'Morocco', 'Turkey', 'Peru', 'Vietnam', 'Ethiopia', 'Lebanon', 'South Korea', 'Argentina', 'Portugal', 'Nigeria', 'Poland', 'Egypt', 'Indonesia', 'Germany', 'Colombia', 'Malaysia', 'Russia', 'Kenya', 'Iran', 'Philippines', 'Chile', 'Hungary', 'Ghana', 'Romania', 'Ukraine', 'Tunisia']
+  }
+
+  // Function to get fallback location
+  const getFallbackLocation = (cat) => {
+    const locations = FALLBACK_LOCATIONS[cat] || FALLBACK_LOCATIONS.Hemisphere
+    return locations[Math.floor(Math.random() * locations.length)]
+  }
+
+
+  // Debug timer length changes
+  useEffect(() => {
+    console.log('RoomPage: timerLength state changed to:', timerLength)
+  }, [timerLength])
+
 
   // Set up socket event listeners and join room
   useEffect(() => {
@@ -38,9 +368,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     // Room management events
     socket.on('roomUpdate', (data) => {
       console.log('RoomPage: Room update received:', data)
-      console.log('RoomPage: Current players before update:', players)
-      console.log('RoomPage: New players from update:', data.data?.players)
-      
       setCurrentRoom(data.data)
       setPlayers(data.data?.players || [])
       setGameState(data.data?.gameState || 'lobby')
@@ -49,26 +376,21 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       // Update host status
       const currentPlayer = data.data?.players?.find(p => p.socketId === socket.id)
       setIsHost(currentPlayer?.isHost || false)
-      
-      console.log('RoomPage: Players updated to:', data.data?.players)
     })
 
     socket.on('playerJoined', (data) => {
       console.log('Player joined:', data)
       setSuccess(`${data.playerName} joined the room`)
-      // Room update will handle the player list update
     })
 
     socket.on('playerLeft', (data) => {
       console.log('Player left:', data)
       setSuccess(`${data.playerName} left the room`)
-      // Room update will handle the player list update
     })
 
     socket.on('playerReconnected', (data) => {
       console.log('Player reconnected:', data)
       setSuccess(`${data.data?.playerName || 'A player'} is back from cooking`)
-      // Update players list with reconnection status
       if (data.data?.players) {
         setPlayers(data.data.players)
       }
@@ -77,7 +399,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     socket.on('playerDisconnected', (data) => {
       console.log('Player disconnected:', data)
       setSuccess(`${data.data?.playerName || 'A player'} is cooking`)
-      // Update players list with disconnection status
       if (data.data?.players) {
         setPlayers(data.data.players)
       }
@@ -86,36 +407,64 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     // Game management events
     socket.on('gameStarted', (data) => {
       console.log('Game started:', data)
-      setGameState('submitting')
+      setGameState('hostSetup') // Set to hostSetup instead of submitting
       setCurrentPrompt(data.data?.currentPrompt || '')
+      setGameStartTime(new Date())
+      setSuccess('Game setup started!')
+      setIsLoading(false)
+    })
+
+    socket.on('gameContinued', (data) => {
+      console.log('=== GAME CONTINUED EVENT HANDLER CALLED ===')
+      console.log('RoomPage: gameContinued received:', data)
+      console.log('RoomPage: Full data object:', JSON.stringify(data, null, 2))
+      console.log('RoomPage: timerLength from server:', data.data?.timerLength)
+      console.log('RoomPage: current timerLength state:', timerLength)
+      console.log('RoomPage: isHost:', isHost)
+      
+      // Update timer length for non-host players
+      if (data.data?.timerLength && !isHost) {
+        console.log('RoomPage: Updating timerLength for non-host player:', data.data.timerLength)
+        setTimerLength(data.data.timerLength)
+        console.log('RoomPage: setTimerLength called with:', data.data.timerLength)
+      } else {
+        console.log('RoomPage: Not updating timerLength - isHost:', isHost, 'serverTimerLength:', data.data?.timerLength)
+      }
+      
+      setGameState('submitting') // Now transition to actual game
+      setCurrentPrompt(data.data?.currentPrompt || '')
+      
+      // Update category and selected location from server
+      if (data.data?.category) {
+        console.log('RoomPage: Setting category from server:', data.data.category)
+        setCategory(data.data.category)
+      }
+      if (data.data?.selectedLocation) {
+        console.log('RoomPage: Setting selectedLocation from server:', data.data.selectedLocation)
+        setSelectedLocation(data.data.selectedLocation)
+      } else {
+        console.log('RoomPage: No selectedLocation in server data!')
+        console.log('RoomPage: Available keys in data.data:', Object.keys(data.data || {}))
+      }
       setGameStartTime(new Date())
       setSuccess('Game started! Check your cooking prompt below.')
       setIsLoading(false)
     })
 
-    socket.on('submissionSuccess', (data) => {
-      console.log('Submission successful:', data)
-      setHasSubmitted(true)
-      setSuccess('Image submitted successfully!')
+    socket.on('nextToGame', (data) => {
+      console.log('Next to game:', data)
+      console.log('RoomPage: selectedLocation before nextToGame:', selectedLocation)
+      console.log('RoomPage: category before nextToGame:', category)
+      setGameState('gameScreen')
+      setSuccess('Game screen activated!')
       setIsLoading(false)
     })
 
-    socket.on('submissionUpdate', (data) => {
-      console.log('Submission update:', data)
-      setSubmissions(data.submissions || [])
-      setSubmissionProgress(data.progress || {})
-      
-      // Check if all players have submitted
-      if (data.data?.allPlayersSubmitted) {
-        setSuccess('All players have submitted! Voting will start soon.')
-      }
-    })
 
     socket.on('votingStarted', (data) => {
       console.log('Voting started:', data)
       setGameState('voting')
       setVotingStartTime(new Date())
-      setSubmissions(data.submissions || [])
       setSuccess('Voting has started! Vote for your favorite dish.')
     })
 
@@ -131,7 +480,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       setVotes(data.votes || {})
       setVotingProgress(data.progress || {})
       
-      // Check if all players have voted
       if (data.data?.allPlayersVoted) {
         setSuccess('All players have voted! Results coming soon.')
       }
@@ -140,7 +488,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     socket.on('resultsReady', (data) => {
       console.log('Results ready:', data)
       setGameState('results')
-      setResults(data.data?.submissions || [])
+      setResults(data.data?.results || [])
       setWinner(data.data?.winner || null)
       setSuccess('Results are in! Check out the winner below.')
     })
@@ -161,18 +509,20 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
         setGameState(data.data?.gameState || 'lobby')
         setCurrentPrompt(data.data?.currentPrompt || '')
         
+        // Update submission status from server
+        if (data.data.hasSubmitted !== undefined) {
+          console.log('RoomPage: Server says hasSubmitted:', data.data.hasSubmitted)
+          setHasSubmitted(data.data.hasSubmitted)
+          console.log('RoomPage: Set hasSubmitted from server:', data.data.hasSubmitted)
+        } else {
+          console.log('RoomPage: Server did not provide hasSubmitted status')
+        }
+        
         // Update host status
         const currentPlayer = data.data?.players?.find(p => p.socketId === socket.id)
         setIsHost(currentPlayer?.isHost || false)
       }
     })
-
-    // If we have room data but socket just connected, we need to join the room
-    if (roomData && roomData.roomCode && isConnected) {
-      console.log('RoomPage: Socket connected, joining room:', roomData.roomCode)
-      // Don't emit joinRoom here - let the user manually rejoin from the home page
-      // This prevents the "Reconnecting Player" issue
-    }
 
     // Clean up event listeners when component unmounts
     return () => {
@@ -183,8 +533,8 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       socket.off('playerReconnected')
       socket.off('playerDisconnected')
       socket.off('gameStarted')
-      socket.off('submissionSuccess')
-      socket.off('submissionUpdate')
+      socket.off('gameContinued')
+      socket.off('nextToGame')
       socket.off('votingStarted')
       socket.off('voteSuccess')
       socket.off('voteUpdate')
@@ -192,11 +542,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       socket.off('error')
     }
   }, [socket, roomData, isConnected])
-
-  // Debug effect to log player changes
-  useEffect(() => {
-    console.log('RoomPage: Players state changed:', players)
-  }, [players])
 
   // Clear messages after 5 seconds
   useEffect(() => {
@@ -209,41 +554,6 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     }
   }, [error, success])
 
-  // Timer effect for game phases
-  useEffect(() => {
-    let interval = null
-    
-    if (gameState === 'submitting' && gameStartTime) {
-      interval = setInterval(() => {
-        const now = new Date()
-        const elapsed = now - gameStartTime
-        const remaining = Math.max(0, 5 * 60 * 1000 - elapsed) // 5 minutes default
-        setTimeRemaining(remaining)
-        
-        if (remaining === 0) {
-          setSuccess('Time\'s up! Submit your dish now.')
-        }
-      }, 1000)
-    } else if (gameState === 'voting' && votingStartTime) {
-      interval = setInterval(() => {
-        const now = new Date()
-        const elapsed = now - votingStartTime
-        const remaining = Math.max(0, 2 * 60 * 1000 - elapsed) // 2 minutes default
-        setTimeRemaining(remaining)
-        
-        if (remaining === 0) {
-          setSuccess('Voting time is up!')
-        }
-      }, 1000)
-    }
-    
-    return () => {
-      if (interval) {
-        clearInterval(interval)
-      }
-    }
-  }, [gameState, gameStartTime, votingStartTime])
-
   // Game action handlers
   const handleStartGame = () => {
     if (!socket || !isConnected || !isHost) return
@@ -252,51 +562,16 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     setError('')
     setSuccess('')
     
+    // Emit startGame event to notify all players
     socket.emit('startGame', {
-      roomCode: currentRoom.roomCode
-    })
-  }
-
-  const handleSubmitImage = (imageData) => {
-    if (!socket || !isConnected || hasSubmitted) return
-    
-    setIsLoading(true)
-    setError('')
-    setSuccess('')
-    
-    socket.emit('submitImage', {
       roomCode: currentRoom.roomCode,
-      imageData: imageData
-    })
-  }
-
-  const handleStartVoting = () => {
-    if (!socket || !isConnected || !isHost) return
-    
-    setIsLoading(true)
-    setError('')
-    setSuccess('')
-    
-    socket.emit('startVoting', {
-      roomCode: currentRoom.roomCode
-    })
-  }
-
-  const handleCastVote = (submissionId) => {
-    if (!socket || !isConnected || hasVoted) return
-    
-    setIsLoading(true)
-    setError('')
-    setSuccess('')
-    
-    socket.emit('castVote', {
-      roomCode: currentRoom.roomCode,
-      submissionId: submissionId
+      gameState: 'hostSetup'
     })
   }
 
   const handleLeaveRoom = () => {
     if (!socket || !isConnected) return
+    
     
     socket.emit('leaveRoom', {
       roomCode: currentRoom.roomCode
@@ -308,284 +583,291 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     }
   }
 
-  // Format time remaining
-  const formatTime = (ms) => {
-    const minutes = Math.floor(ms / 60000)
-    const seconds = Math.floor((ms % 60000) / 1000)
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  }
-
-  // Render different game states
-  const renderGameState = () => {
-    switch (gameState) {
-      case 'lobby':
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Waiting for Players</h2>
-              <p className="text-gray-600 mb-6">
-                Share the room code <span className="font-mono font-bold text-lg bg-gray-100 px-3 py-1 rounded">{currentRoom.roomCode}</span> with friends to join!
-              </p>
-            </div>
-            
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-gray-800 mb-3">Players ({players.length})</h3>
-              <div className="space-y-2">
-                {players.map((player, index) => (
-                  <div key={`${player.id}-${player.socketId}-${index}`} className="flex items-center justify-between bg-white p-3 rounded-md">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-gray-800">{player.name}</span>
-                      <div className={`w-2 h-2 rounded-full ${
-                        player.isConnected ? 'bg-green-500' : 'bg-yellow-500'
-                      }`} title={player.isConnected ? 'Connected' : 'Cooking'}></div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {player.isHost && (
-                        <span className="bg-orange-100 text-orange-800 text-xs font-medium px-2 py-1 rounded-full">
-                          Host
-                        </span>
-                      )}
-                      {!player.isConnected && (
-                        <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full">
-                          Cooking
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            {isHost && (
-              <div className="text-center">
-                <button
-                  onClick={handleStartGame}
-                  disabled={players.length < 2 || isLoading}
-                  className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200"
-                >
-                  {isLoading ? 'Starting...' : 'Start Game'}
-                </button>
-                {players.length < 2 && (
-                  <p className="text-sm text-gray-500 mt-2">Need at least 2 players to start</p>
-                )}
-              </div>
-            )}
-          </div>
-        )
-
-      case 'submitting':
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Cooking Time!</h2>
-              <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-lg mb-4">
-                <p className="text-lg font-semibold">{currentPrompt}</p>
-              </div>
-              <div className="text-2xl font-mono font-bold text-gray-800">
-                {formatTime(timeRemaining)}
-              </div>
-            </div>
-            
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-gray-800 mb-3">Submission Progress</h3>
-              <div className="space-y-2">
-                {players.map((player, index) => (
-                  <div key={index} className="flex items-center justify-between bg-white p-3 rounded-md">
-                    <span className="text-gray-800">{player.name}</span>
-                    <span className={`text-sm px-2 py-1 rounded-full ${
-                      submissionProgress[player._id] 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {submissionProgress[player._id] ? 'Submitted' : 'Cooking...'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            {!hasSubmitted && (
-              <div className="text-center">
-                <button
-                  onClick={() => handleSubmitImage('mock-image-data')}
-                  disabled={isLoading}
-                  className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200"
-                >
-                  {isLoading ? 'Submitting...' : 'Submit Image'}
-                </button>
-                <p className="text-sm text-gray-500 mt-2">Upload a photo of your dish</p>
-              </div>
-            )}
-          </div>
-        )
-
-      case 'voting':
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Vote for Your Favorite!</h2>
-              <div className="text-lg font-mono font-bold text-gray-800 mb-4">
-                {formatTime(timeRemaining)}
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {submissions.map((submission, index) => (
-                <div key={index} className="bg-white p-4 rounded-lg shadow-md">
-                  <div className="bg-gray-200 h-32 rounded-lg mb-3 flex items-center justify-center">
-                    <span className="text-gray-500">Image Placeholder</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-800 font-medium">{submission.playerName}</span>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-600">{votes[submission._id] || 0} votes</span>
-                      <button
-                        onClick={() => handleCastVote(submission._id)}
-                        disabled={hasVoted || isLoading}
-                        className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded transition-colors duration-200"
-                      >
-                        Vote
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-gray-800 mb-3">Voting Progress</h3>
-              <div className="space-y-2">
-                {players.map((player, index) => (
-                  <div key={index} className="flex items-center justify-between bg-white p-3 rounded-md">
-                    <span className="text-gray-800">{player.name}</span>
-                    <span className={`text-sm px-2 py-1 rounded-full ${
-                      votingProgress[player._id] 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {votingProgress[player._id] ? 'Voted' : 'Voting...'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )
-
-      case 'results':
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Game Results!</h2>
-              {winner && (
-                <div className="bg-yellow-100 text-yellow-800 px-6 py-4 rounded-lg mb-6">
-                  <h3 className="text-xl font-bold">🏆 Winner: {winner.playerName}</h3>
-                  <p className="text-lg">{winner.voteCount} votes</p>
-                </div>
-              )}
-            </div>
-            
-            <div className="space-y-4">
-              {results && results.map((result, index) => (
-                <div key={index} className={`p-4 rounded-lg ${
-                  result.playerId === winner?.playerId 
-                    ? 'bg-yellow-50 border-2 border-yellow-300' 
-                    : 'bg-gray-50'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-800">{result.playerName}</span>
-                    <span className="text-lg font-bold text-gray-800">{result.voteCount} votes</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            {isHost && (
-              <div className="text-center">
-                <button
-                  onClick={() => setGameState('lobby')}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200"
-                >
-                  Play Again
-                </button>
-              </div>
-            )}
-          </div>
-        )
-
-      default:
-        return (
-          <div className="text-center">
-            <p className="text-gray-600">Unknown game state: {gameState}</p>
-          </div>
-        )
+  const handleContinue = () => {
+    if (!socket || !isConnected || !isHost) return
+    
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
+    
+    console.log('RoomPage: handleContinue - timerLength selected:', timerLength)
+    
+    const emitData = {
+      roomCode: currentRoom.roomCode,
+      category: category,
+      difficulty: difficulty,
+      timerLength: timerLength
     }
+    
+    console.log('RoomPage: Emitting continueGame with data:', emitData)
+    console.log('RoomPage: timerLength being sent:', timerLength)
+    
+    // Emit continueGame event to proceed to actual game start
+    socket.emit('continueGame', emitData)
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">
-                🍳 Room: {currentRoom.roomCode}
-              </h1>
-              <p className="text-gray-600">
-                Game State: <span className="font-semibold capitalize">{gameState}</span>
-              </p>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {/* Connection Status */}
-              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                isConnected 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-red-100 text-red-800'
-              }`}>
-                <div className={`w-2 h-2 rounded-full mr-2 ${
-                  isConnected ? 'bg-green-500' : 'bg-red-500'
-                }`}></div>
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </div>
-              
-              <button
-                onClick={handleLeaveRoom}
-                className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200"
-              >
-                Leave Room
-              </button>
-            </div>
-          </div>
-        </div>
+  const handleNextToGame = () => {
+    if (!socket || !isConnected || !isHost) return
+    
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
+    
+    // Emit event to notify all players to transition to game screen
+    socket.emit('nextToGame', {
+      roomCode: currentRoom.roomCode
+    })
+  }
 
-        {/* Error/Success Messages */}
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
-            {error}
-          </div>
-        )}
-        
-        {success && (
-          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6">
-            {success}
-          </div>
-        )}
+  const handleFinishedCooking = () => {
+    // Move directly to voting phase
+    if (!socket || !isConnected) return
+    
+    socket.emit('startVoting', {
+      roomCode: currentRoom.roomCode
+    })
+  }
 
-        {/* Main Game Content */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          {renderGameState()}
-        </div>
+  const handleVote = (playerId, rating) => {
+    if (!socket || !isConnected) return
+    
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
+    
+    // Emit castVote event
+    socket.emit('castVote', {
+      roomCode: currentRoom.roomCode,
+      playerId: playerId,
+      rating: rating
+    })
+  }
 
-        {/* Footer */}
-        <div className="text-center text-sm text-gray-500 mt-6">
-          <p>Step 12: Room Page and State Management</p>
-          <p>Socket.IO integration and game state management working</p>
-        </div>
-      </div>
-    </div>
+  // Render host setup screen
+  const renderHostSetup = () => (
+    <HostSetupContainer>
+      {/* Leave Game Button */}
+      <HostLeaveButton onClick={handleLeaveRoom}>
+        ← leave game
+      </HostLeaveButton>
+
+      {/* Setup Title */}
+      <SetupTitle>
+        Set Up Your Game!
+      </SetupTitle>
+
+      {/* Dropdown Menus */}
+      <DropdownContainer>
+        {/* Category Dropdown */}
+        <Box sx={{ width: '100%' }}>
+          <DropdownLabel>category</DropdownLabel>
+          <FormControl fullWidth>
+            <StyledSelect
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              displayEmpty
+            >
+              <MenuItem value="Hemisphere">hemisphere</MenuItem>
+              <MenuItem value="Continent">continent</MenuItem>
+              <MenuItem value="Region">region</MenuItem>
+              <MenuItem value="Country">country</MenuItem>
+            </StyledSelect>
+          </FormControl>
+        </Box>
+
+        {/* Difficulty Dropdown */}
+        <Box sx={{ width: '100%' }}>
+          <DropdownLabel>difficulty</DropdownLabel>
+          <FormControl fullWidth>
+            <StyledSelect
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value)}
+              displayEmpty
+            >
+              <MenuItem value="Easy">easy</MenuItem>
+              <MenuItem value="Medium">medium</MenuItem>
+              <MenuItem value="Hard">hard</MenuItem>
+            </StyledSelect>
+          </FormControl>
+        </Box>
+
+        {/* Timer Length Dropdown */}
+        <Box sx={{ width: '100%' }}>
+          <DropdownLabel>timer length</DropdownLabel>
+          <FormControl fullWidth>
+            <StyledSelect
+              value={timerLength}
+              onChange={(e) => {
+                console.log('RoomPage: Timer length changed to:', e.target.value)
+                setTimerLength(e.target.value)
+              }}
+              displayEmpty
+            >
+              <MenuItem value="30 mins">30 mins</MenuItem>
+              <MenuItem value="1 hour">1 hour</MenuItem>
+              <MenuItem value="2 hours">2 hours</MenuItem>
+              <MenuItem value="3 hours">3 hours</MenuItem>
+            </StyledSelect>
+          </FormControl>
+        </Box>
+
+        {/* Continue Button */}
+        <ContinueButton
+          onClick={handleContinue}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Starting Game...' : 'Continue'}
+        </ContinueButton>
+      </DropdownContainer>
+    </HostSetupContainer>
   )
+
+  // Render waiting screen for non-host players
+  const renderWaitingScreen = () => (
+    <WaitingContainer>
+      {/* Leave Game Button */}
+      <WaitingLeaveButton onClick={handleLeaveRoom}>
+        ← leave game
+      </WaitingLeaveButton>
+
+      {/* Waiting Text */}
+      <WaitingText>
+        wait for the host!
+      </WaitingText>
+    </WaitingContainer>
+  )
+
+  // Render globe spinning screen
+  const renderGlobeSpinning = () => (
+    <GlobeSpinningContainer>
+      {/* Leave Game Button */}
+      <GlobeLeaveButton onClick={handleLeaveRoom}>
+        ← leave game
+      </GlobeLeaveButton>
+
+      {/* Globe Spinning Text */}
+      <GlobeSpinningText>
+        globe spinning
+      </GlobeSpinningText>
+
+      {/* Challenge Text */}
+      <ChallengeText>
+        challenge: {currentPrompt || 'yap yap yap'}
+      </ChallengeText>
+
+      {/* Next Button (Host Only) */}
+      {isHost && (
+        <GlobeNextButton
+          onClick={handleNextToGame}
+          disabled={isLoading}
+        >
+          {isLoading ? 'starting...' : 'next'}
+        </GlobeNextButton>
+      )}
+    </GlobeSpinningContainer>
+  )
+
+  // Render lobby view
+  const renderLobby = () => (
+    <RoomContainer>
+      {/* Leave Game Button */}
+      <LeaveButton onClick={handleLeaveRoom}>
+        ← leave game
+      </LeaveButton>
+
+      {/* Main Content */}
+      <ContentContainer>
+        {/* Game Code Section */}
+        <GameCodeSection>
+          <GameCodeLabel>game code</GameCodeLabel>
+          <GameCodeValue>{currentRoom.roomCode}</GameCodeValue>
+        </GameCodeSection>
+
+        {/* Players Section */}
+        <Box sx={{ width: '100%' }}>
+          <PlayersLabel sx={{ mb: 2 }}>Players:</PlayersLabel>
+          
+          {/* Player Slots */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {Array.from({ length: 6 }, (_, index) => {
+              const player = players[index]
+        return (
+                <PlayerSlot key={index}>
+                  <PlayerText>
+                    {player ? `Player ${index + 1}: ${player.name}` : `Player ${index + 1}:`}
+                  </PlayerText>
+                </PlayerSlot>
+              )
+            })}
+          </Box>
+        </Box>
+
+        {/* Start Game Button (Host Only) */}
+        {isHost && gameState === 'lobby' && (
+          <StartGameButton
+            onClick={handleStartGame}
+            disabled={isLoading || players.length < 2}
+          >
+            {isLoading ? 'Starting Game...' : 'Start Game'}
+          </StartGameButton>
+        )}
+
+        {/* Waiting Message for Non-Hosts */}
+        {!isHost && (
+          <Typography sx={{ color: '#666', textAlign: 'center' }}>
+            Waiting for the host to start the game...
+          </Typography>
+        )}
+      </ContentContainer>
+    </RoomContainer>
+  )
+
+  // Render different views based on game state and host status
+  console.log('RoomPage render - gameState:', gameState, 'isHost:', isHost, 'timerLength:', timerLength)
+  
+  if (gameState === 'hostSetup') {
+    if (isHost) {
+      return renderHostSetup()
+    } else {
+      return renderWaitingScreen()
+    }
+  } else if (gameState === 'submitting') {
+    return renderGlobeSpinning()
+  } else if (gameState === 'gameScreen') {
+    console.log('RoomPage: Rendering GameScreen with selectedLocation:', selectedLocation)
+    console.log('RoomPage: Rendering GameScreen with category:', category)
+    console.log('RoomPage: Rendering GameScreen with currentPrompt:', currentPrompt)
+    
+    // Use fallback location if server didn't provide one
+    const locationToUse = selectedLocation || getFallbackLocation(category)
+    console.log('RoomPage: Using location:', locationToUse)
+    
+    return (
+      <GameScreen
+        currentPrompt={currentPrompt}
+        timeRemaining={timeRemaining}
+        players={players}
+        onLeaveGame={handleLeaveRoom}
+        onFinishedCooking={handleFinishedCooking}
+        timerLength={timerLength}
+        category={category}
+        selectedLocation={locationToUse}
+      />
+    )
+  } else if (gameState === 'voting') {
+    return (
+      <VotingScreen
+        players={players}
+        currentPlayerId={players.find(p => p.socketId === socket?.id)?._id}
+        onVote={handleVote}
+        onLeaveGame={handleLeaveRoom}
+        isLoading={isLoading}
+        hasVoted={hasVoted}
+      />
+    )
+  } else {
+    return renderLobby()
+  }
 }
 
 export default RoomPage

@@ -1,0 +1,6 @@
+<svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- Egg white with thick black outline -->
+  <ellipse cx="30" cy="30" rx="28" ry="25" fill="white" stroke="black" stroke-width="3"/>
+  <!-- Yolk -->
+  <circle cx="30" cy="30" r="12" fill="#FFD700" stroke="black" stroke-width="1"/>
+</svg>
