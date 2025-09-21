@@ -97,7 +97,7 @@ const LeaveButton = styled(Button)(({ theme }) => ({
 
 const StartGameButton = styled(Button)(({ theme }) => ({
   fontFamily: '"Grandstander", cursive',
-  backgroundColor: '#F44336', // Red background
+  backgroundColor: '#2E7D32', // Dark green background
   color: 'white',
   borderRadius: theme.spacing(1),
   padding: theme.spacing(2, 4),
@@ -106,7 +106,7 @@ const StartGameButton = styled(Button)(({ theme }) => ({
   textTransform: 'lowercase',
   width: '100%',
   '&:hover': {
-    backgroundColor: '#D32F2F'
+    backgroundColor: '#1B5E20'
   },
   '&:disabled': {
     backgroundColor: '#BDBDBD',
@@ -227,7 +227,7 @@ const WaitingLeaveButton = styled(Button)(({ theme }) => ({
 
 const ContinueButton = styled(Button)(({ theme }) => ({
   fontFamily: '"Grandstander", cursive',
-  backgroundColor: '#F44336', // Red background
+  backgroundColor: '#2E7D32', // Dark green background
   color: 'white',
   borderRadius: theme.spacing(1),
   padding: theme.spacing(2, 4),
@@ -237,9 +237,26 @@ const ContinueButton = styled(Button)(({ theme }) => ({
   width: '100%',
   marginTop: theme.spacing(2),
   '&:hover': {
-    backgroundColor: '#D32F2F'
+    backgroundColor: '#1B5E20'
   }
 }))
+
+// Custom Image Component - Add your image URLs here
+const CustomImage = ({ imageUrl, altText, width = 100, height = 100, style = {} }) => (
+  <img 
+    src={imageUrl}
+    alt={altText}
+    style={{
+      width: width,
+      height: height,
+      borderRadius: '8px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+      objectFit: 'cover',
+      ...style
+    }}
+    onError={(e) => e.target.style.display = 'none'}
+  />
+)
 
 
 const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
@@ -571,6 +588,20 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   // Render host setup screen
   const renderHostSetup = () => (
     <HostSetupContainer>
+      {/* Custom Image 3 - Top Right Corner */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/SK95WWD8/Donut.png"
+        altText="Room decorative image 3"
+        width={300}
+        height={300}
+        style={{
+          position: 'absolute',
+          top: 20,
+          right: 20,
+          opacity: 0.7
+        }}
+      />
+
       {/* Leave Game Button */}
       <HostLeaveButton onClick={handleLeaveRoom}>
         ← leave game
@@ -647,6 +678,22 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   // Render waiting screen for non-host players
   const renderWaitingScreen = () => (
     <WaitingContainer>
+      {/* Custom Image 4 - Center Decorative */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/NF8Bb3D6/Samosa.png"
+        altText="Room decorative image 4"
+        width={300}
+        height={300}
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(100%, -135%)',
+          opacity: 1,
+          zIndex: 1
+        }}
+      />
+
       {/* Leave Game Button */}
       <WaitingLeaveButton onClick={handleLeaveRoom}>
         ← leave game
@@ -663,6 +710,20 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   // Render lobby view
   const renderLobby = () => (
     <RoomContainer>
+      {/* Custom Image 1 - Top Left Corner */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/yYVHsrnG/Sushi.png"
+        altText="Room decorative image 1"
+        width={300}
+        height={300}
+        style={{
+          position: 'absolute',
+          top: 20,
+          left: 20,
+          opacity: 1
+        }}
+      />
+
       {/* Leave Game Button */}
       <LeaveButton onClick={handleLeaveRoom}>
         ← leave game
@@ -712,6 +773,20 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
           </Typography>
         )}
       </ContentContainer>
+
+      {/* Custom Image 2 - Bottom Right Corner */}
+      <CustomImage 
+        imageUrl="https://i.postimg.cc/MZmCPmxm/Kebab.png"
+        altText="Room decorative image 2"
+        width={70}
+        height={70}
+        style={{
+          position: 'absolute',
+          bottom: 20,
+          right: 20,
+          opacity: 0.5
+        }}
+      />
     </RoomContainer>
   )
 

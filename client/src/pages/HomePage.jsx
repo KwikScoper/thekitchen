@@ -83,7 +83,33 @@ const SubmitButton = styled(Button)(({ theme }) => ({
   marginTop: theme.spacing(2),
   '&:hover': {
     backgroundColor: '#303030'
+  },
+  '&:disabled': {
+    backgroundColor: '#BDBDBD',
+    color: 'white'
   }
+}))
+
+const CornerImage = styled(Box)(({ theme }) => ({
+  position: 'absolute',
+  top: theme.spacing(3),
+  width: '300px',
+  height: '300px',
+  backgroundSize: 'contain',
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'center',
+  opacity: 0.8,
+  zIndex: 1
+}))
+
+const TopLeftImage = styled(CornerImage)(({ theme }) => ({
+  left: theme.spacing(3),
+  backgroundImage: 'url(https://i.postimg.cc/MZmCPmxm/Kebab.png)'
+}))
+
+const TopRightImage = styled(CornerImage)(({ theme }) => ({
+  right: theme.spacing(3),
+  backgroundImage: 'url(https://i.postimg.cc/NF8Bb3D6/Samosa.png)'
 }))
 
 const HomePage = ({ socket, isConnected, onRoomJoined, onRoomCreated, onBackToLanding }) => {
@@ -259,6 +285,10 @@ const HomePage = ({ socket, isConnected, onRoomJoined, onRoomCreated, onBackToLa
 
   return (
     <HomeContainer>
+      {/* Corner Images */}
+      <TopLeftImage />
+      <TopRightImage />
+      
       {/* Leave Game Button */}
       <LeaveButton onClick={handleLeaveGame}>
         ← leave game

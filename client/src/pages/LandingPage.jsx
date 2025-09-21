@@ -36,7 +36,7 @@ const LandingContainer = styled(Box)(({ theme }) => ({
 
 const LogoText = styled(Typography)(({ theme }) => ({
   fontFamily: '"Grape Nuts", cursive, "Brush Script MT", cursive',
-  fontSize: '6rem',
+  fontSize: '4.5rem',
   fontWeight: 'bold',
   color: 'black',
   lineHeight: 1,
@@ -53,7 +53,8 @@ const SubtitleText = styled(Typography)(({ theme }) => ({
   color: 'black',
   fontWeight: 400,
   textAlign: 'center',
-  marginBottom: theme.spacing(6),
+  marginTop: theme.spacing(16),
+  marginBottom: theme.spacing(0),
   textTransform: 'lowercase'
 }))
 
@@ -154,7 +155,7 @@ const LandingPage = ({ onPlayWithFriends, onPlayOnline }) => {
       />
 
       {/* Logo with Egg Icon */}
-      <Box sx={{ textAlign: 'center', mb: 4 }}>
+      <Box sx={{ textAlign: 'center', mb: 6 }}>
         <LogoText>
           cooked
           <FriedEggIcon />

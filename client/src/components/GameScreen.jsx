@@ -21,7 +21,7 @@ const LeaveButton = styled(Button)(({ theme }) => ({
 
 const FinishedCookingButton = styled(Button)(({ theme }) => ({
   fontFamily: '"Grandstander", cursive',
-  backgroundColor: '#F44336', // Red background
+  backgroundColor: '#2E7D32', // Dark green background
   color: 'white',
   borderRadius: theme.spacing(1),
   padding: theme.spacing(2, 4),
@@ -30,7 +30,7 @@ const FinishedCookingButton = styled(Button)(({ theme }) => ({
   textTransform: 'lowercase',
   width: '200px',
   '&:hover': {
-    backgroundColor: '#D32F2F'
+    backgroundColor: '#1B5E20'
   }
 }))
 
