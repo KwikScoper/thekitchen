@@ -839,6 +839,7 @@ class SocketManager {
       
       console.log('Server: handleContinueGame received data:', data);
       console.log('Server: timerLength received:', timerLength);
+      console.log('Server: category received:', category);
 
       // Validate input
       if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
@@ -899,6 +900,128 @@ class SocketManager {
         return;
       }
 
+      // Location data structure for random selection
+      const locationData = {
+        Hemisphere: [
+          'Northern Hemisphere',
+          'Southern Hemisphere',
+          'Eastern Hemisphere', 
+          'Western Hemisphere'
+        ],
+        Continent: [
+          'North America',
+          'South America',
+          'Europe',
+          'Asia',
+          'Africa',
+          'Australia',
+          'Antarctica'
+        ],
+        Region: [
+          'Mediterranean',
+          'Scandinavia',
+          'Caribbean',
+          'Middle East',
+          'Southeast Asia',
+          'East Asia',
+          'Sub-Saharan Africa',
+          'North Africa',
+          'Central America',
+          'South America',
+          'Eastern Europe',
+          'Western Europe',
+          'North America',
+          'Oceania'
+        ],
+        Country: [
+          'Italy',
+          'France',
+          'Japan',
+          'Thailand',
+          'Mexico',
+          'India',
+          'China',
+          'Spain',
+          'Greece',
+          'Turkey',
+          'Morocco',
+          'Brazil',
+          'Argentina',
+          'Peru',
+          'Germany',
+          'United Kingdom',
+          'Ireland',
+          'Sweden',
+          'Norway',
+          'Denmark',
+          'South Korea',
+          'Vietnam',
+          'Philippines',
+          'Indonesia',
+          'Malaysia',
+          'Singapore',
+          'Lebanon',
+          'Israel',
+          'Egypt',
+          'Ethiopia',
+          'South Africa',
+          'Nigeria',
+          'Kenya',
+          'Australia',
+          'New Zealand',
+          'Canada',
+          'United States',
+          'Chile',
+          'Colombia',
+          'Venezuela',
+          'Portugal',
+          'Netherlands',
+          'Belgium',
+          'Switzerland',
+          'Austria',
+          'Poland',
+          'Czech Republic',
+          'Hungary',
+          'Romania',
+          'Bulgaria',
+          'Croatia',
+          'Serbia',
+          'Russia',
+          'Ukraine',
+          'Georgia',
+          'Armenia',
+          'Iran',
+          'Iraq',
+          'Saudi Arabia',
+          'United Arab Emirates',
+          'Jordan',
+          'Syria',
+          'Afghanistan',
+          'Pakistan',
+          'Bangladesh',
+          'Sri Lanka',
+          'Nepal',
+          'Bhutan',
+          'Myanmar',
+          'Cambodia',
+          'Laos',
+          'Mongolia',
+          'Kazakhstan',
+          'Uzbekistan',
+          'Kyrgyzstan',
+          'Tajikistan',
+          'Turkmenistan'
+        ]
+      };
+
+      // Randomly select a location from the chosen category
+      const categoryOptions = locationData[category] || [];
+      const selectedLocation = categoryOptions.length > 0 
+        ? categoryOptions[Math.floor(Math.random() * categoryOptions.length)]
+        : 'Unknown Location';
+      
+      console.log(`Randomly selected ${category}: ${selectedLocation}`);
+
       // Generate AI prompt based on category and difficulty
       const prompt = await this.aiPromptGenerator.generateContextualPrompt({
         playerCount: room.players.length,
@@ -914,7 +1037,7 @@ class SocketManager {
       const updatedRoom = await GameRoom.findById(room._id).populate('players');
 
       // Emit game continued event to all players in the room
-      this.emitToRoom(normalizedRoomCode, 'gameContinued', {
+      const emitData = {
         success: true,
         message: 'Game started successfully!',
         data: {
@@ -924,6 +1047,7 @@ class SocketManager {
           gameStartTime: updatedRoom.gameStartTime,
           cookingTimeLimit: updatedRoom.cookingTimeLimit,
           timerLength: timerLength,
+          selectedLocation: selectedLocation,
           playerCount: updatedRoom.players.length,
           players: updatedRoom.players.map(p => ({
             id: p._id,
@@ -932,10 +1056,13 @@ class SocketManager {
             socketId: p.socketId
           }))
         }
-      });
+      };
+      
+      this.emitToRoom(normalizedRoomCode, 'gameContinued', emitData);
 
       console.log(`Game continued in room ${normalizedRoomCode} by ${player.name} (${socket.id})`);
       console.log(`Category: ${category}, Difficulty: ${difficulty}, TimerLength: ${timerLength}`);
+      console.log(`Selected Location: ${selectedLocation}`);
       console.log(`Prompt: "${prompt}"`);
 
     } catch (error) {

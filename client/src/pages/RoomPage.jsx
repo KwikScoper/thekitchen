@@ -270,6 +270,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
     }))
   })
   const [currentPrompt, setCurrentPrompt] = useState(roomData?.currentPrompt || '')
+  const [gameLocation, setGameLocation] = useState('')
   const [isHost, setIsHost] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -293,6 +294,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
   const [category, setCategory] = useState('Hemisphere')
   const [difficulty, setDifficulty] = useState('Easy')
   const [timerLength, setTimerLength] = useState('30 mins')
+
 
 
   // Set up socket event listeners and join room
@@ -382,6 +384,11 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       // Update timer length for non-host players
       if (data.data?.timerLength && !isHost) {
         setTimerLength(data.data.timerLength)
+      }
+      
+      // Update game location for all players (including host)
+      if (data.data?.selectedLocation) {
+        setGameLocation(data.data.selectedLocation)
       }
       
       setGameState('gameScreen') // Go directly to game screen
@@ -807,6 +814,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
         onLeaveGame={handleLeaveRoom}
         onFinishedCooking={handleFinishedCooking}
         timerLength={timerLength}
+        gameLocation={gameLocation}
       />
     )
   } else if (gameState === 'voting') {

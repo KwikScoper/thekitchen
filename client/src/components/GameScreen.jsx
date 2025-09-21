@@ -58,13 +58,27 @@ const ChallengeBox = styled(Paper)(({ theme }) => ({
   justifyContent: 'center'
 }))
 
+const LocationBox = styled(Paper)(({ theme }) => ({
+  backgroundColor: '#F5F5F5', // Light gray background
+  borderRadius: theme.spacing(2), // Slightly less rounded
+  padding: theme.spacing(2, 4), // Smaller padding
+  boxShadow: 'none', // No shadow
+  minWidth: '300px', // Smaller minimum width
+  minHeight: '60px', // Smaller minimum height
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginTop: theme.spacing(2) // Space between challenge and location
+}))
+
 const GameScreen = ({ 
   currentPrompt, 
   timeRemaining, 
   players, 
   onLeaveGame,
   onFinishedCooking,
-  timerLength = '30 mins'
+  timerLength = '30 mins',
+  gameLocation = ''
 }) => {
   const [timer, setTimer] = useState(0)
   const [isTimerRunning, setIsTimerRunning] = useState(false)
@@ -134,13 +148,22 @@ const GameScreen = ({
         ← leave game
       </LeaveButton>
 
-      {/* Challenge Text - Upper Half */}
-      <div className="flex-1 flex items-center justify-center">
+      {/* Challenge and Location - Upper Half */}
+      <div className="flex-1 flex flex-col items-center justify-center">
         <ChallengeBox elevation={8}>
           <p className="text-black text-center" style={{fontFamily: '"Grandstander", cursive', textTransform: 'lowercase', fontSize: '1.5rem', fontWeight: 'bold'}}>
             challenge: {currentPrompt || 'yap yap yap'}
           </p>
         </ChallengeBox>
+        
+        {/* Location Box - Only show if location exists */}
+        {gameLocation && (
+          <LocationBox elevation={8}>
+            <p className="text-gray-700 text-center" style={{fontFamily: '"Grandstander", cursive', textTransform: 'lowercase', fontSize: '1.2rem', fontWeight: 'normal'}}>
+              location: {gameLocation}
+            </p>
+          </LocationBox>
+        )}
       </div>
 
       {/* Timer Display - Lower Half */}
