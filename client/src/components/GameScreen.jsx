@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Button } from '@mui/material'
+import { Button, Paper } from '@mui/material'
 import { styled } from '@mui/material/styles'
 
 // Styled components
@@ -32,6 +32,30 @@ const FinishedCookingButton = styled(Button)(({ theme }) => ({
   '&:hover': {
     backgroundColor: '#1B5E20'
   }
+}))
+
+const TimerBox = styled(Paper)(({ theme }) => ({
+  backgroundColor: 'white',
+  borderRadius: theme.spacing(3), // More rounded corners
+  padding: theme.spacing(4, 6), // Larger padding
+  boxShadow: 'none', // No shadow
+  minWidth: '300px', // Minimum width
+  minHeight: '120px', // Minimum height
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
+}))
+
+const ChallengeBox = styled(Paper)(({ theme }) => ({
+  backgroundColor: 'white',
+  borderRadius: theme.spacing(3), // More rounded corners
+  padding: theme.spacing(4, 6), // Larger padding
+  boxShadow: 'none', // No shadow
+  minWidth: '400px', // Minimum width
+  minHeight: '100px', // Minimum height
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
 }))
 
 const GameScreen = ({ 
@@ -112,20 +136,24 @@ const GameScreen = ({
 
       {/* Challenge Text - Upper Half */}
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-black text-xl font-normal text-center" style={{fontFamily: '"Grandstander", cursive', textTransform: 'lowercase'}}>
-          challenge: {currentPrompt || 'yap yap yap'}
-        </p>
+        <ChallengeBox elevation={8}>
+          <p className="text-black text-center" style={{fontFamily: '"Grandstander", cursive', textTransform: 'lowercase', fontSize: '1.5rem', fontWeight: 'bold'}}>
+            challenge: {currentPrompt || 'yap yap yap'}
+          </p>
+        </ChallengeBox>
       </div>
 
       {/* Timer Display - Lower Half */}
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-black text-xl font-normal text-center" style={{fontFamily: '"Grandstander", cursive'}}>
-          {formatTime(timer)}
-        </div>
+        <TimerBox elevation={8}>
+          <div className="text-black text-center" style={{fontFamily: '"Grandstander", cursive', fontSize: '4rem', fontWeight: 'bold', paddingTop: '0.5rem'}}>
+            {formatTime(timer)}
+          </div>
+        </TimerBox>
       </div>
 
       {/* Finished Cooking Button */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+      <div className="flex justify-center items-center" style={{height: '300px'}}>
         <FinishedCookingButton onClick={onFinishedCooking}>
           finished cooking
         </FinishedCookingButton>
