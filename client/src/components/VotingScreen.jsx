@@ -157,6 +157,7 @@ const VotingScreen = ({
   players = [], 
   currentPlayerId, 
   onVote, 
+  onBatchVote,
   onLeaveGame, 
   isLoading = false,
   hasVoted = false 
@@ -198,12 +199,20 @@ const VotingScreen = ({
   const handleSubmitAllVotes = () => {
     if (hasVoted || isLoading || ratedPlayers !== totalPlayers) return
     
-    // Submit all votes
-    Object.entries(playerRatings).forEach(([playerId, rating]) => {
-      if (rating !== '' && playerId !== currentPlayerId) {
+    // Submit all votes at once using batch voting
+    const votesToSubmit = Object.entries(playerRatings).filter(([playerId, rating]) => 
+      rating !== '' && playerId !== currentPlayerId
+    )
+    
+    // Call the batch vote handler if available, otherwise fall back to individual votes
+    if (onBatchVote) {
+      onBatchVote(votesToSubmit)
+    } else {
+      // Fallback to individual votes
+      votesToSubmit.forEach(([playerId, rating]) => {
         onVote(playerId, rating)
-      }
-    })
+      })
+    }
   }
   
   const isAllRated = ratedPlayers === totalPlayers && totalPlayers > 0

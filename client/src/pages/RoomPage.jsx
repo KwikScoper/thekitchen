@@ -3,6 +3,7 @@ import { Box, Button, Typography, Select, MenuItem, FormControl, InputLabel } fr
 import { styled } from '@mui/material/styles'
 import GameScreen from '../components/GameScreen'
 import VotingScreen from '../components/VotingScreen'
+import PodiumScreen from '../components/PodiumScreen'
 
 // Styled components
 const RoomContainer = styled(Box)(({ theme }) => ({
@@ -389,6 +390,13 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       setIsLoading(false)
     })
 
+    socket.on('batchVoteSuccess', (data) => {
+      console.log('Batch vote successful:', data)
+      setHasVoted(true)
+      setSuccess(`Votes cast for ${data.data?.processedVotes?.length || 0} players!`)
+      setIsLoading(false)
+    })
+
     socket.on('voteUpdate', (data) => {
       console.log('Vote update:', data)
       setVotes(data.votes || {})
@@ -456,6 +464,7 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       socket.off('gameContinued')
       socket.off('votingStarted')
       socket.off('voteSuccess')
+      socket.off('batchVoteSuccess')
       socket.off('voteUpdate')
       socket.off('resultsReady')
       socket.off('error')
@@ -542,6 +551,20 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
       roomCode: currentRoom.roomCode,
       playerId: playerId,
       rating: rating
+    })
+  }
+
+  const handleBatchVote = (votes) => {
+    if (!socket || !isConnected) return
+    
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
+    
+    // Emit batch vote event
+    socket.emit('castBatchVote', {
+      roomCode: currentRoom.roomCode,
+      votes: votes
     })
   }
 
@@ -717,9 +740,17 @@ const RoomPage = ({ socket, isConnected, roomData, onBackToHome }) => {
         players={players}
         currentPlayerId={players.find(p => p.socketId === socket?.id)?._id}
         onVote={handleVote}
+        onBatchVote={handleBatchVote}
         onLeaveGame={handleLeaveRoom}
         isLoading={isLoading}
         hasVoted={hasVoted}
+      />
+    )
+  } else if (gameState === 'results') {
+    return (
+      <PodiumScreen
+        results={results}
+        onLeaveGame={handleLeaveRoom}
       />
     )
   } else {

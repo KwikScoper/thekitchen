@@ -66,6 +66,10 @@ class SocketManager {
         this.handleCastVote(socket, data);
       });
 
+      socket.on('castBatchVote', (data) => {
+        this.handleCastBatchVote(socket, data);
+      });
+
       // Log successful connection
       socket.emit('connected', {
         message: 'Successfully connected to The Kitchen server',
@@ -1192,7 +1196,10 @@ class SocketManager {
 
       // Check if all players have voted
       const totalVotes = room.votes.length;
-      const allPlayersVoted = totalVotes >= (room.players.length * (room.players.length - 1));
+      const expectedVotes = room.players.length * (room.players.length - 1);
+      const allPlayersVoted = totalVotes >= expectedVotes;
+      
+      console.log(`Voting check: ${totalVotes}/${expectedVotes} votes cast, allPlayersVoted: ${allPlayersVoted}`);
 
       // Emit vote success to the voting player
       socket.emit('voteSuccess', {
@@ -1226,6 +1233,7 @@ class SocketManager {
 
       // If all players have voted, automatically transition to results phase
       if (allPlayersVoted) {
+        console.log(`All players voted! Transitioning to results phase for room ${normalizedRoomCode}`);
         await room.showResults();
         
         // Calculate results
@@ -1236,6 +1244,8 @@ class SocketManager {
           );
           const totalRating = votesForPlayer.reduce((sum, vote) => sum + vote.rating, 0);
           const averageRating = votesForPlayer.length > 0 ? totalRating / votesForPlayer.length : 0;
+          
+          console.log(`Player ${player.name}: ${votesForPlayer.length} votes, total: ${totalRating}, average: ${averageRating}`);
           
           playerRatings[player._id.toString()] = {
             playerId: player._id,
@@ -1272,6 +1282,237 @@ class SocketManager {
       console.error('Error casting vote:', error);
       socket.emit('error', {
         message: 'Internal server error while casting vote',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  }
+
+  /**
+   * Handle batch vote casting
+   * @param {Object} socket - The socket casting the votes
+   * @param {Object} data - Data containing room code and array of votes
+   */
+  async handleCastBatchVote(socket, data) {
+    try {
+      const { roomCode, votes } = data;
+
+      // Validate input
+      if (!roomCode || typeof roomCode !== 'string' || roomCode.trim().length !== 4) {
+        socket.emit('error', {
+          message: 'Room code must be exactly 4 characters',
+          code: 'INVALID_ROOM_CODE'
+        });
+        return;
+      }
+
+      if (!votes || !Array.isArray(votes) || votes.length === 0) {
+        socket.emit('error', {
+          message: 'Votes array is required and must not be empty',
+          code: 'INVALID_VOTES'
+        });
+        return;
+      }
+
+      const normalizedRoomCode = roomCode.trim().toUpperCase();
+
+      // Find voter player
+      const voter = await Player.findOne({ socketId: socket.id });
+      if (!voter) {
+        socket.emit('error', {
+          message: 'Player not found',
+          code: 'PLAYER_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Find room
+      const room = await GameRoom.findOne({ roomCode: normalizedRoomCode }).populate('players');
+      if (!room) {
+        socket.emit('error', {
+          message: 'Room not found',
+          code: 'ROOM_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Check if voter is in this room
+      const voterInRoom = room.players.find(p => p._id.toString() === voter._id.toString());
+      if (!voterInRoom) {
+        socket.emit('error', {
+          message: 'Player is not in this room',
+          code: 'PLAYER_NOT_IN_ROOM'
+        });
+        return;
+      }
+
+      // Check if game is in voting state
+      if (room.gameState !== 'voting') {
+        socket.emit('error', {
+          message: 'Game is not in voting phase',
+          code: 'INVALID_GAME_STATE'
+        });
+        return;
+      }
+
+      // Check if voting time has expired
+      if (room.isVotingTimeExpired()) {
+        socket.emit('error', {
+          message: 'Voting time has expired',
+          code: 'VOTING_TIME_EXPIRED'
+        });
+        return;
+      }
+
+      // Process each vote in the batch
+      const processedVotes = [];
+      for (const [playerId, rating] of votes) {
+        // Validate individual vote
+        if (!playerId || typeof playerId !== 'string') {
+          console.warn(`Invalid player ID in batch vote: ${playerId}`);
+          continue;
+        }
+
+        if (!rating || typeof rating !== 'number' || rating < 1 || rating > 5) {
+          console.warn(`Invalid rating in batch vote: ${rating}`);
+          continue;
+        }
+
+        // Find the player being voted for
+        const targetPlayer = await Player.findById(playerId);
+        if (!targetPlayer) {
+          console.warn(`Target player not found: ${playerId}`);
+          continue;
+        }
+
+        // Check if target player is in this room
+        const targetPlayerInRoom = room.players.find(p => p._id.toString() === targetPlayer._id.toString());
+        if (!targetPlayerInRoom) {
+          console.warn(`Target player not in room: ${playerId}`);
+          continue;
+        }
+
+        // Check if voter is trying to vote for themselves
+        if (voter._id.toString() === targetPlayer._id.toString()) {
+          console.warn(`Player tried to vote for themselves: ${playerId}`);
+          continue;
+        }
+
+        // Check if voter has already voted for this player
+        const existingVote = room.votes?.find(vote => 
+          vote.voterId.toString() === voter._id.toString() && 
+          vote.targetPlayerId.toString() === targetPlayer._id.toString()
+        );
+
+        if (existingVote) {
+          console.warn(`Player already voted for ${targetPlayer.name}`);
+          continue;
+        }
+
+        // Add vote to room
+        if (!room.votes) {
+          room.votes = [];
+        }
+        
+        room.votes.push({
+          voterId: voter._id,
+          targetPlayerId: targetPlayer._id,
+          rating: rating,
+          votedAt: new Date()
+        });
+
+        processedVotes.push({
+          targetPlayerId: targetPlayer._id,
+          targetPlayerName: targetPlayer.name,
+          rating: rating
+        });
+      }
+
+      // Save room with all votes
+      await room.save();
+
+      // Check if all players have voted
+      const totalVotes = room.votes.length;
+      const expectedVotes = room.players.length * (room.players.length - 1);
+      const allPlayersVoted = totalVotes >= expectedVotes;
+      
+      console.log(`Batch voting check: ${totalVotes}/${expectedVotes} votes cast, allPlayersVoted: ${allPlayersVoted}`);
+
+      // Emit batch vote success to the voting player
+      socket.emit('batchVoteSuccess', {
+        success: true,
+        message: `Batch vote cast for ${processedVotes.length} players!`,
+        data: {
+          processedVotes: processedVotes,
+          totalVotes: totalVotes,
+          allPlayersVoted: allPlayersVoted,
+          votedAt: new Date().toISOString()
+        }
+      });
+
+      // Emit vote update to all players in the room
+      this.emitToRoom(normalizedRoomCode, 'voteUpdate', {
+        success: true,
+        message: `${voter.name} submitted ${processedVotes.length} votes`,
+        data: {
+          voterId: voter._id,
+          voterName: voter.name,
+          totalVotes: totalVotes,
+          allPlayersVoted: allPlayersVoted,
+          remainingTime: room.getRemainingVotingTime()
+        }
+      });
+
+      // If all players have voted, automatically transition to results phase
+      if (allPlayersVoted) {
+        console.log(`All players voted! Transitioning to results phase for room ${normalizedRoomCode}`);
+        await room.showResults();
+        
+        // Calculate results
+        const playerRatings = {};
+        room.players.forEach(player => {
+          const votesForPlayer = room.votes.filter(vote => 
+            vote.targetPlayerId.toString() === player._id.toString()
+          );
+          const totalRating = votesForPlayer.reduce((sum, vote) => sum + vote.rating, 0);
+          const averageRating = votesForPlayer.length > 0 ? totalRating / votesForPlayer.length : 0;
+          
+          console.log(`Player ${player.name}: ${votesForPlayer.length} votes, total: ${totalRating}, average: ${averageRating}`);
+          
+          playerRatings[player._id.toString()] = {
+            playerId: player._id,
+            playerName: player.name,
+            totalRating: totalRating,
+            averageRating: averageRating,
+            voteCount: votesForPlayer.length
+          };
+        });
+
+        // Find winner (player with highest average rating)
+        const sortedPlayers = Object.values(playerRatings).sort((a, b) => b.averageRating - a.averageRating);
+        const winner = sortedPlayers.length > 0 ? sortedPlayers[0] : null;
+
+        // Emit results ready event to all players
+        this.emitToRoom(normalizedRoomCode, 'resultsReady', {
+          success: true,
+          message: 'All votes are in! Results are ready.',
+          data: {
+            roomCode: room.roomCode,
+            gameState: room.gameState,
+            results: Object.values(playerRatings),
+            winner: winner,
+            totalVotes: totalVotes
+          }
+        });
+
+        console.log(`All players voted in room ${normalizedRoomCode}, results phase started`);
+      }
+
+      console.log(`${voter.name} (${socket.id}) batch voted for ${processedVotes.length} players in room ${normalizedRoomCode}`);
+
+    } catch (error) {
+      console.error('Error casting batch vote:', error);
+      socket.emit('error', {
+        message: 'Internal server error while casting batch vote',
         code: 'INTERNAL_ERROR'
       });
     }
